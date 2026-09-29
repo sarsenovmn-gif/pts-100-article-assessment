@@ -67,17 +67,20 @@ export default function Home() {
       <header className="mb-8">
         <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-medium text-indigo-300">
           <span className="h-1.5 w-1.5 rounded-full bg-indigo-400" />
-          PTS-100 · Publication Trust Score
+          PTS · Publication Trust Score
         </div>
         <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
           Publication Trust Score
         </h1>
         <p className="mt-2 max-w-xl text-sm leading-6 text-zinc-400">
-          Assess a single publication against the PTS-100 framework — the IMPRESS
-          Standards Code plus the IHRA Working Definition of Antisemitism. The
-          model returns evidence-backed judgements; a deterministic scorer
-          verifies every quote, applies the stance gate and critical cap, and
-          routes findings for human review.
+          Assess a single publication on two independent 100-point scores:{" "}
+          <span className="text-zinc-200">PTS-A</span> for antisemitism (IHRA
+          Working Definition) and{" "}
+          <span className="text-zinc-200">PTS-J</span> for journalistic standards
+          (IMPRESS Standards Code). The model returns evidence-backed judgements;
+          a deterministic scorer verifies every quote, applies the stance gate and
+          critical caps, and routes findings for human review. The two scores are
+          never blended.
         </p>
       </header>
 
