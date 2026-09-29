@@ -49,6 +49,8 @@ export type Assessment = {
   language: string;
   designation: Designation;
   overall_stance: Stance;
+  /** Passages the model flagged as touching Jews/Israel/Holocaust/antisemitism. */
+  candidate_passages?: string[];
   criteria: CriterionAssessment[];
   conduct: ConductAssessment[];
   legal_flag: LegalFlag;
@@ -76,6 +78,7 @@ export type Finding = {
   stance: string;
   ihra_examples: number[];
   quote: string;
+  quote_approximate?: boolean;
   rationale: string;
   confidence: number | null;
 };
@@ -127,6 +130,7 @@ export type ScoreResult = {
   rejected_findings?: RejectedFinding[];
   human_review?: ReviewEntry[];
   legal_flag?: LegalFlag & { note?: string };
+  candidate_passages?: string[];
   summary?: string;
   note?: string;
   warnings?: string[];

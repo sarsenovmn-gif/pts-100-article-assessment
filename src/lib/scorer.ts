@@ -51,11 +51,88 @@ export function _normalise(text: string): string {
   return out.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
-/** True when the quote (after light normalisation) occurs in the text. */
+// Section labels the model must not include inside a quote (rule 8).
+const LABEL_PREFIX = /^(headline|standfirst|byline|published|source|body)\s*:\s*/;
+
+// Minimum similarity for an approximate (fuzzy) quote match.
+export const APPROX_THRESHOLD = 0.85;
+
+function levenshtein(a: string, b: string): number {
+  const m = a.length;
+  const n = b.length;
+  if (m === 0) return n;
+  if (n === 0) return m;
+  let prev = new Array<number>(n + 1);
+  for (let j = 0; j <= n; j++) prev[j] = j;
+  for (let i = 1; i <= m; i++) {
+    const cur = new Array<number>(n + 1);
+    cur[0] = i;
+    const ai = a.charCodeAt(i - 1);
+    for (let j = 1; j <= n; j++) {
+      const cost = ai === b.charCodeAt(j - 1) ? 0 : 1;
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost);
+    }
+    prev = cur;
+  }
+  return prev[n];
+}
+
+function ratio(a: string, b: string): number {
+  const maxLen = Math.max(a.length, b.length);
+  if (maxLen === 0) return 1;
+  return 1 - levenshtein(a, b) / maxLen;
+}
+
+/** Best fuzzy ratio of `part` against any similar-length window of `text`. */
+function bestApproxRatio(part: string, text: string): number {
+  if (!part) return 1;
+  if (text.includes(part)) return 1;
+  const L = part.length;
+  if (L > text.length) return ratio(part, text);
+  let best = 0;
+  const step = Math.max(1, Math.floor(L / 5));
+  for (let i = 0; i + L <= text.length; i += step) {
+    const r = ratio(part, text.slice(i, i + L));
+    if (r > best) best = r;
+    if (best >= APPROX_THRESHOLD) return best;
+  }
+  return best;
+}
+
+/**
+ * Verify a model quote against the article. Mirrors the corrected reference:
+ * the quote is normalised, stripped of any section label, split on ellipsis
+ * into parts, and each part must match the text either exactly or approximately
+ * (ratio >= 0.85). Returns whether it was found and whether any part was only
+ * an approximate match.
+ */
+export function verify_quote(
+  quote: string,
+  text: string,
+): { found: boolean; approximate: boolean } {
+  if (!quote) return { found: false, approximate: false };
+  const normText = _normalise(text);
+  const parts = _normalise(quote)
+    .split(/\s*\.{2,}\s*/) // ellipsis (… -> ... , or ..) splits the quote
+    .map((p) => p.replace(LABEL_PREFIX, "").trim())
+    .filter(Boolean);
+  if (parts.length === 0) return { found: false, approximate: false };
+
+  let approximate = false;
+  for (const part of parts) {
+    if (normText.includes(part)) continue; // exact
+    if (bestApproxRatio(part, normText) >= APPROX_THRESHOLD) {
+      approximate = true;
+      continue;
+    }
+    return { found: false, approximate: false };
+  }
+  return { found: true, approximate };
+}
+
+/** True when the quote occurs in the text (exact or approximate). */
 export function quote_in_text(quote: string, text: string): boolean {
-  const q = _normalise(quote);
-  if (!q) return false;
-  return _normalise(text).includes(q);
+  return verify_quote(quote, text).found;
 }
 
 /** A publication cannot close our data envelope. */
@@ -167,12 +244,19 @@ export function calculate_pts100(
   let capApplied = false;
   let capReason: string | null = null;
 
+  const overallStance = assessment.overall_stance ?? "NONE";
+
   for (const { id: cid, points: maxPoints } of POINTS) {
     if (!applicable.has(cid)) continue;
     const block = cid[0] as keyof BlockTotals;
     const item = criteria[cid];
     const status = item.status;
-    const stance = item.failure_stance ?? "NONE";
+    // Fix 1: when the model leaves failure_stance unspecified (NONE/empty),
+    // fall back to the publication's overall stance so that genuine failures
+    // are not silently discarded by the stance gate.
+    const rawStance = item.failure_stance ?? "NONE";
+    const stance =
+      rawStance && rawStance !== "NONE" ? rawStance : overallStance;
     const quote = item.evidence_quote || "";
 
     if (status === "NOT_ASSESSABLE") {
@@ -195,7 +279,8 @@ export function calculate_pts100(
     }
 
     // ---- FAIL: rules that can refuse the deduction ----
-    if (!quote_in_text(quote, articleText)) {
+    const check = verify_quote(quote, articleText);
+    if (!check.found) {
       rejected.push({
         criterion: cid,
         reason: "evidence quote not found in text",
@@ -230,6 +315,7 @@ export function calculate_pts100(
       stance,
       ihra_examples: item.ihra_examples ?? [],
       quote,
+      quote_approximate: check.approximate,
       rationale: item.rationale ?? "",
       confidence: item.confidence ?? null,
     });
@@ -321,6 +407,7 @@ export function calculate_pts100(
     rejected_findings: rejected,
     human_review: reviewQueue,
     legal_flag: { ...legal, note: "Routing flag only. Not a legal finding." },
+    candidate_passages: assessment.candidate_passages ?? [],
     summary: assessment.summary,
     warnings,
     provenance: _provenance(assessment, articleText, runId),
