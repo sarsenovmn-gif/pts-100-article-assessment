@@ -5,10 +5,25 @@ Publication Trust Score** framework — the **IMPRESS Standards Code** combined
 with the **IHRA Working Definition of Antisemitism**.
 
 Give it an article by URL or pasted text. The app extracts the publication into
-labelled sections, sends it to the Anthropic Messages API with a forced,
-structured tool call, then runs a **deterministic scorer** that verifies every
-piece of evidence and applies the PTS-100 rules exactly. It is a faithful port
-of the reference Python pipeline (`team14-solutionV4.py`).
+labelled sections, sends it to a model with a forced, structured tool call, then
+runs a **deterministic scorer** that verifies every piece of evidence and applies
+the PTS-100 rules exactly. It is a faithful port of the reference Python pipeline
+(`team14-solutionV4.py`).
+
+### Model providers
+
+The app selects a provider in this order:
+
+1. **OpenRouter** — if `OPENROUTER_API_KEY` is set (OpenAI-compatible function
+   calling; default model `anthropic/claude-haiku-4.5`).
+2. **Anthropic** — if `ANTHROPIC_API_KEY` is set (the issued team key, Messages
+   API + tool use; default model `claude-haiku-4-5`).
+3. **Mock** — if neither is set, a clearly-labelled all-PASS assessment so the
+   flow is still usable with no credentials.
+
+> Note: the original Team 14 spec forbids third-party routers ("No OpenRouter,
+> no third-party model"). OpenRouter support is opt-in for convenience/testing;
+> use the Anthropic path for spec compliance.
 
 ## The framework
 
@@ -70,8 +85,9 @@ npm run dev
 
 The dev server runs on port **43127** → http://localhost:43127
 
-Without `ANTHROPIC_API_KEY` the app runs entirely on a clearly-labelled **mock**
-assessment, so you can explore the full flow with no credentials.
+Without `ANTHROPIC_API_KEY` or `OPENROUTER_API_KEY` the app runs entirely on a
+clearly-labelled **mock** assessment, so you can explore the full flow with no
+credentials.
 
 ## Self-test
 
@@ -90,17 +106,23 @@ no score.
 
 | Variable             | Required          | Default             | Purpose                              |
 | -------------------- | ----------------- | ------------------- | ------------------------------------ |
-| `ANTHROPIC_API_KEY`  | For real scoring  | –                   | Enables live PTS-100 assessment.     |
+| `ANTHROPIC_API_KEY`  | One key for real scoring | –            | Enables the Anthropic (spec) path.   |
 | `PTS_MODEL`          | No                | `claude-haiku-4-5`  | Override the Anthropic model.        |
 | `ANTHROPIC_BASE_URL` | No                | `https://api.anthropic.com` | Custom / regional (EU) endpoint. |
+| `OPENROUTER_API_KEY` | One key for real scoring | –            | Enables the OpenRouter path (opt-in).|
+| `OPENROUTER_MODEL`   | No                | `anthropic/claude-haiku-4.5` | Override the OpenRouter model. |
+| `OPENROUTER_BASE_URL`| No                | `https://openrouter.ai/api/v1` | Custom OpenRouter base URL.  |
+
+Set **either** `ANTHROPIC_API_KEY` **or** `OPENROUTER_API_KEY` for real scoring;
+with neither, the app returns a labelled mock.
 
 ## Deploy to Vercel
 
 1. Push this repo to GitHub/GitLab.
 2. Import it at [vercel.com/new](https://vercel.com/new) — Next.js is
    auto-detected.
-3. Add `ANTHROPIC_API_KEY` (and optionally `PTS_MODEL` / `ANTHROPIC_BASE_URL`)
-   under **Project → Settings → Environment Variables**.
+3. Add `ANTHROPIC_API_KEY` **or** `OPENROUTER_API_KEY` (and optionally the model
+   overrides) under **Project → Settings → Environment Variables**.
 4. Deploy.
 
 Or from the CLI:

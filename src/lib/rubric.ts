@@ -4,6 +4,13 @@ export const PROMPT_VERSION = "PTS-100 v0.2 / prompt v4 / 2026-09-29";
 
 export const MODEL = process.env.PTS_MODEL || "claude-haiku-4-5";
 export const ANTHROPIC_VERSION = "2023-06-01";
+
+// OpenRouter (OpenAI-compatible) fallback provider. Note: the original Team 14
+// spec forbids third-party routers; this is opt-in via OPENROUTER_API_KEY.
+export const OPENROUTER_BASE_URL =
+  process.env.OPENROUTER_BASE_URL || "https://openrouter.ai/api/v1";
+export const OPENROUTER_MODEL =
+  process.env.OPENROUTER_MODEL || "anthropic/claude-haiku-4.5";
 export const MAX_TOKENS = 6000;
 export const TEMPERATURE = 0;
 export const MAX_RETRIES = 4;
