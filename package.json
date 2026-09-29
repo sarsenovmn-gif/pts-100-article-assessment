@@ -6,7 +6,8 @@
     "dev": "next dev -p 43127",
     "build": "next build",
     "start": "next start -p 43127",
-    "lint": "eslint"
+    "lint": "eslint",
+    "selftest": "tsx scripts/selftest.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.129.0",
@@ -23,6 +24,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.3.7",
     "tailwindcss": "^4",
+    "tsx": "^4.23.15",
     "typescript": "^5"
   }
 }
