@@ -113,8 +113,9 @@ export function ResultsPanel({
     <div className="mt-8 space-y-4">
       {score.mocked && (
         <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
-          <span className="font-semibold">Mock result.</span> No{" "}
-          <code className="rounded bg-black/30 px-1">ANTHROPIC_API_KEY</code> is
+          <span className="font-semibold">Mock result.</span> No model key
+          (<code className="rounded bg-black/30 px-1">OPENROUTER_API_KEY</code> or{" "}
+          <code className="rounded bg-black/30 px-1">ANTHROPIC_API_KEY</code>) is
           configured, so this is a placeholder all-PASS assessment. Add a key for
           a real PTS-100 evaluation.
         </div>
@@ -141,6 +142,10 @@ export function ResultsPanel({
             <Chip label="Language" value={score.language} />
             <Chip label="Stance" value={score.overall_stance} />
             {score.points && <Chip label="Coverage" value={score.points.coverage} />}
+            <Chip
+              label="Candidate passages"
+              value={String(score.candidate_passages?.length ?? 0)}
+            />
           </div>
           {score.note && (
             <p className="mt-3 text-sm text-zinc-400">{score.note}</p>
@@ -183,6 +188,23 @@ export function ResultsPanel({
       {score.summary && (
         <Section title="Summary">
           <p className="text-sm leading-6 text-zinc-300">{score.summary}</p>
+        </Section>
+      )}
+
+      {score.candidate_passages && score.candidate_passages.length > 0 && (
+        <Section
+          title={`Candidate passages found by the model (${score.candidate_passages.length})`}
+        >
+          <div className="space-y-2">
+            {score.candidate_passages.map((p, i) => (
+              <blockquote
+                key={i}
+                className="border-l-2 border-indigo-400/40 pl-3 text-xs italic leading-5 text-zinc-300"
+              >
+                “{p}”
+              </blockquote>
+            ))}
+          </div>
         </Section>
       )}
 
@@ -237,6 +259,11 @@ export function ResultsPanel({
                     )}
                     {f.confidence !== null && (
                       <span>confidence {f.confidence.toFixed(2)}</span>
+                    )}
+                    {f.quote_approximate && (
+                      <span className="rounded bg-amber-500/20 px-1.5 text-amber-300">
+                        approximate quote
+                      </span>
                     )}
                   </div>
                   {f.quote && (

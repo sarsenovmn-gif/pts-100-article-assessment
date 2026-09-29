@@ -184,5 +184,47 @@ export function selftest(): void {
   s = calculate_pts100(mockAssessment(), SAMPLE_ARTICLE, "SATIRE");
   assert(s.final_score === null, "scenario 7: SATIRE final_score should be null", s);
 
-  console.log("Self-test passed: 7 scenarios.");
+  // 8. Fix 1: a FAIL with failure_stance NONE falls back to overall_stance
+  //    (OWN_VOICE here), so a genuine A1 failure is NOT silently rejected.
+  s = calculate_pts100(
+    mockAssessment({
+      A1: {
+        status: "FAIL",
+        failure_stance: "NONE",
+        evidence_quote: "breathe clean air",
+        ihra_examples: [2],
+      },
+    }),
+    SAMPLE_ARTICLE,
+  );
+  assert(
+    (s.findings ?? []).some((f) => f.criterion === "A1"),
+    "scenario 8: A1 fail with NONE stance should be accepted via overall_stance fallback",
+    s,
+  );
+  assert(
+    s.final_score === 83 && !(s.rejected_findings ?? []).some((r) => r.criterion === "A1"),
+    "scenario 8: A1 -15 should deduct (83), not be rejected",
+    s,
+  );
+
+  // 9. Fix 2: an approximate quote (one altered character) is still verified.
+  s = calculate_pts100(
+    mockAssessment({
+      A1: {
+        status: "FAIL",
+        failure_stance: "OWN_VOICE",
+        evidence_quote: "breath clean air", // "breathe" -> "breath"
+        ihra_examples: [2],
+      },
+    }),
+    SAMPLE_ARTICLE,
+  );
+  assert(
+    (s.findings ?? []).some((f) => f.criterion === "A1" && f.quote_approximate === true),
+    "scenario 9: approximate A1 quote should match and be flagged approximate",
+    s,
+  );
+
+  console.log("Self-test passed: 9 scenarios.");
 }
