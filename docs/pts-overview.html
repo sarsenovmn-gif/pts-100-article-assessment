@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>PTS · Publication Trust Score — Overview</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm; }
+  * { box-sizing: border-box; }
+  html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body {
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: #18181b; font-size: 10.5px; line-height: 1.5; margin: 0;
+  }
+  h1 { font-size: 26px; margin: 0 0 4px; letter-spacing: -0.4px; }
+  h2 {
+    font-size: 15px; margin: 22px 0 8px; padding-bottom: 4px;
+    border-bottom: 2px solid #e4e4e7; color: #111;
+  }
+  h3 { font-size: 12px; margin: 14px 0 4px; color: #27272a; }
+  p { margin: 6px 0; }
+  .muted { color: #52525b; }
+  .lead { font-size: 12px; color: #3f3f46; }
+  a { color: #4f46e5; text-decoration: none; }
+  code {
+    font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+    font-size: 9.5px; background: #f4f4f5; padding: 1px 4px; border-radius: 4px;
+    color: #3730a3;
+  }
+  .cover {
+    border: 1px solid #e4e4e7; border-radius: 14px; padding: 20px 22px;
+    background: linear-gradient(135deg, #f8f7ff 0%, #f4f7ff 100%); margin-bottom: 6px;
+  }
+  .badges { margin-top: 10px; }
+  .badge {
+    display: inline-block; font-size: 9px; font-weight: 600; padding: 3px 9px;
+    border-radius: 999px; margin: 0 6px 6px 0; border: 1px solid #d4d4d8; color: #3f3f46;
+    background: #fff;
+  }
+  .badge.a { border-color: #c7d2fe; color: #4338ca; background: #eef2ff; }
+  .badge.j { border-color: #bbf7d0; color: #15803d; background: #f0fdf4; }
+  table { width: 100%; border-collapse: collapse; margin: 8px 0 4px; }
+  th, td { text-align: left; padding: 6px 8px; vertical-align: top; border-bottom: 1px solid #ececef; }
+  th { font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px; color: #71717a; background: #fafafa; }
+  td.id { font-family: ui-monospace, monospace; font-weight: 700; white-space: nowrap; color: #3730a3; }
+  td.pts { font-family: ui-monospace, monospace; white-space: nowrap; text-align: right; }
+  .tag-crit { color: #b91c1c; font-weight: 700; }
+  .tag-cont { color: #b45309; font-weight: 700; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .card { border: 1px solid #e4e4e7; border-radius: 10px; padding: 10px 12px; }
+  .card h3 { margin-top: 0; }
+  ul { margin: 6px 0; padding-left: 18px; }
+  li { margin: 3px 0; }
+  .rule { font-weight: 600; color: #111; }
+  .callout {
+    border: 1px solid #fde68a; background: #fffbeb; border-radius: 10px;
+    padding: 10px 12px; margin: 10px 0; color: #78350f;
+  }
+  .footer { margin-top: 20px; padding-top: 8px; border-top: 1px solid #e4e4e7; color: #a1a1aa; font-size: 8.5px; }
+  .pagebreak { page-break-before: always; }
+  .kbd { font-family: ui-monospace, monospace; color: #3f3f46; }
+</style>
+</head>
+<body>
+
+  <div class="cover">
+    <div class="muted" style="font-size:9px;letter-spacing:2px;text-transform:uppercase;">Publication Trust Score</div>
+    <h1>PTS — Two-Score Framework</h1>
+    <p class="lead">An evidence-based tool that assesses a single publication on two independent
+    100-point scores: <strong>PTS-A</strong> (Antisemitism, IHRA) and <strong>PTS-J</strong>
+    (Journalistic Standards, IMPRESS). A model returns per-criterion judgements with exact quotes;
+    a deterministic scorer verifies every quote and applies the rules. The two scores are never blended.</p>
+    <div class="badges">
+      <span class="badge a">PTS-A · IHRA · AS1–AS6</span>
+      <span class="badge j">PTS-J · IMPRESS · J1–J11 + JD</span>
+      <span class="badge">Deterministic scorer</span>
+      <span class="badge">Quote verification</span>
+      <span class="badge">Stance gate</span>
+      <span class="badge">Human-review routing</span>
+    </div>
+  </div>
+
+  <h2>How it works</h2>
+  <p>Give the app an article by URL or pasted text. It extracts the publication into labelled sections
+  (<code>HEADLINE</code>, <code>STANDFIRST</code>, <code>BYLINE</code>, <code>PUBLISHED</code>, <code>SOURCE</code>, <code>BODY</code>),
+  sends it to a model with a <span class="rule">forced, structured tool call</span>, then runs a
+  <span class="rule">deterministic scorer</span> that verifies every piece of evidence and computes both numbers.
+  The model never computes the score — software does.</p>
+  <p class="muted">Providers, in order: <strong>OpenRouter</strong> (if <code>OPENROUTER_API_KEY</code> is set;
+  default <code>anthropic/claude-haiku-4.5</code>) → <strong>Anthropic</strong> (if <code>ANTHROPIC_API_KEY</code> is set;
+  default <code>claude-haiku-4-5</code>) → <strong>Mock</strong> (labelled all-PASS, no key needed).</p>
+
+  <h2>PTS-A — Antisemitism Score (IHRA), 100 points</h2>
+  <table>
+    <thead><tr><th style="width:34px">ID</th><th style="width:44px">Points</th><th>What it checks</th><th style="width:70px">IHRA</th></tr></thead>
+    <tbody>
+      <tr><td class="id">AS1</td><td class="pts">20 <span class="tag-crit">crit</span></td><td>Violence &amp; incitement — calling for, aiding, justifying or celebrating harm to Jews, Jewish institutions or property.</td><td>1</td></tr>
+      <tr><td class="id">AS2</td><td class="pts">20</td><td>Collective tropes &amp; imagery — Jewish power/control/conspiracy over media, finance, government; dehumanising stereotypes; classic imagery.</td><td>2</td></tr>
+      <tr><td class="id">AS3</td><td class="pts">15</td><td>Collective responsibility &amp; dual loyalty — blaming Jews as a people for acts of individuals or of Israel; dual-loyalty accusations.</td><td>3, 6, 11</td></tr>
+      <tr><td class="id">AS4</td><td class="pts">20 <span class="tag-crit">crit</span></td><td>Holocaust denial &amp; distortion — denying fact/scope/mechanisms/intent; claiming it was invented or exaggerated.</td><td>4, 5</td></tr>
+      <tr><td class="id">AS5</td><td class="pts">15 <span class="tag-cont">cont</span></td><td>Israel-related — within legitimate criticism: no delegitimisation ("racist endeavour"), Nazi comparisons, blood-libel imagery, or double standards.</td><td>7, 8, 9, 10</td></tr>
+      <tr><td class="id">AS6</td><td class="pts">10</td><td>Amplification &amp; gratuitous identity — third-party antisemitic content unattributed/unchallenged; irrelevant "Jewish" labelling.</td><td>EJN; 4.2</td></tr>
+    </tbody>
+  </table>
+  <p class="muted"><span class="tag-crit">crit</span> = own-voice failure caps PTS-A at 39 &amp; forces review · <span class="tag-cont">cont</span> = contested zone, always human review.</p>
+
+  <h2>PTS-J — Journalistic Standards Score (IMPRESS), 100 points</h2>
+  <p class="muted">IMPRESS Clause 4 (Discrimination) is <strong>not</strong> in PTS-J — it lives entirely in PTS-A. 80 criteria points (J1–J11) + a 20-point conduct block (JD).</p>
+  <table>
+    <thead><tr><th style="width:34px">ID</th><th style="width:44px">Points</th><th>What it checks</th><th style="width:70px">Clause</th></tr></thead>
+    <tbody>
+      <tr><td class="id">J1</td><td class="pts">20</td><td>Accuracy — no significant inaccuracy, misrepresentation or distortion (<code>fabrication</code> flag for invented facts/quotes).</td><td>1.1 / 1.4</td></tr>
+      <tr><td class="id">J2</td><td class="pts">10</td><td>Fact clearly distinguished from opinion and conjecture.</td><td>1.3</td></tr>
+      <tr><td class="id">J3</td><td class="pts">8</td><td>Significant errors corrected with due prominence.</td><td>1.2</td></tr>
+      <tr><td class="id">J4</td><td class="pts">7</td><td>Headline / standfirst / preview do not misrepresent the body.</td><td>1.5 *</td></tr>
+      <tr><td class="id">J5</td><td class="pts">7</td><td>Third-party material attributed; no plagiarism.</td><td>2.1</td></tr>
+      <tr><td class="id">J6</td><td class="pts">3</td><td>Failure to credit, corrected.</td><td>2.2</td></tr>
+      <tr><td class="id">J7</td><td class="pts">8</td><td>Conflicts of interest &amp; ownership disclosed (EMFA Art. 6).</td><td>10.2</td></tr>
+      <tr><td class="id">J8</td><td class="pts">6</td><td>Paid or sponsored content clearly labelled.</td><td>10.1</td></tr>
+      <tr><td class="id">J9</td><td class="pts">3</td><td>Financial information objective, interests disclosed.</td><td>10.3</td></tr>
+      <tr><td class="id">J10</td><td class="pts">3</td><td>Failure to disclose, corrected.</td><td>10.4</td></tr>
+      <tr><td class="id">J11</td><td class="pts">5</td><td>Public-interest justification evident where relied upon.</td><td>—</td></tr>
+      <tr><td class="id">JD</td><td class="pts">20</td><td>Conduct — clauses 3 (Children), 5 (Harassment), 6 (Justice), 7 (Privacy), 8 (Sources), 9 (Suicide). Starts at 20; −10 per verified engaged-and-breached clause (floor 0).</td><td>3,5,6,7,8,9</td></tr>
+    </tbody>
+  </table>
+  <p class="muted">* J4 is a PTS extension of clause 1.5.</p>
+
+  <div class="pagebreak"></div>
+
+  <h2>Cross-cutting scoring rules</h2>
+  <div class="grid2">
+    <div class="card">
+      <h3>Evidence verification</h3>
+      <p>Every <code>FAIL</code> needs an exact quote, checked against the text with tolerant matching
+      (whitespace / curly-quote normalisation, ellipsis splitting, label stripping, approximate match ≥ 0.85).
+      No verifiable quote → <strong>no deduction</strong>; the finding is rejected and queued for review.</p>
+    </div>
+    <div class="card">
+      <h3>Stance gate (PTS-A only)</h3>
+      <p><code>AS1–AS5</code> can fail only for <code>OWN_VOICE</code> or <code>UNCRITICAL_AMPLIFICATION</code>.
+      <code>REPORTED_CONTEXTUALISED</code> / <code>COUNTERED</code> content is not penalised. A <code>FAIL</code> with
+      <code>failure_stance: NONE</code> inherits <code>overall_stance</code>.</p>
+    </div>
+    <div class="card">
+      <h3>Critical caps (39)</h3>
+      <p><code>AS1</code> or <code>AS4</code> failing in the publication's <strong>own voice</strong> caps PTS-A at 39.
+      <strong>Fabrication</strong> (<code>J1</code>, or a fabricated source under conduct clause 8) caps PTS-J at 39.</p>
+    </div>
+    <div class="card">
+      <h3>NOT_ASSESSABLE &amp; rescaling</h3>
+      <p>Unassessable criteria leave the "possible" total and the score is rescaled to 100 — so coverage can be
+      below 100 while the score is 100. The <strong>absence</strong> of a problem is a <code>PASS</code>, not
+      <code>NOT_ASSESSABLE</code>.</p>
+    </div>
+    <div class="card">
+      <h3>Human-review routing</h3>
+      <p><code>AS1</code>, <code>AS4</code>, <code>AS5</code> failures; any model-flagged review; and any accepted
+      failure with confidence &lt; 0.5 are routed to a de-duplicated review queue (per score).</p>
+    </div>
+    <div class="card">
+      <h3>Legal flag</h3>
+      <p>A separate routing flag (<code>INCITEMENT</code> / <code>HOLOCAUST_DENIAL</code>) — never a legal finding,
+      and never part of either score.</p>
+    </div>
+  </div>
+
+  <h2>Designation profiles &amp; tier bands</h2>
+  <div class="grid2">
+    <div class="card">
+      <h3>Designations</h3>
+      <ul>
+        <li><strong>ARTICLE / DOCUMENTARY</strong> — all AS + all J + JD.</li>
+        <li><strong>POST</strong> — PTS-A in full; PTS-J only on <code>J1</code>, <code>J2</code>, <code>J5</code> + JD.</li>
+        <li><strong>SATIRE</strong> — labelled, <strong>not scored</strong> (both scores <code>null</code>).</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>Tier bands</h3>
+      <p><strong>PTS-A:</strong> ≥100 No indicators · ≥75 Minor concerns · ≥60 Amplification/contested · ≥40 Antisemitic content present · else Severe.</p>
+      <p><strong>PTS-J:</strong> ≥100 Compliant · ≥75 Generally compliant · ≥60 Compliant with exceptions · ≥40 Breach · else Serious breach.</p>
+    </div>
+  </div>
+
+  <h2>Scope &amp; limitations</h2>
+  <div class="callout">
+    <p style="margin-top:0"><strong>These scores judge the text as written.</strong> They detect antisemitism (IHRA)
+    and journalistic-standards breaches (IMPRESS) that are visible in the piece itself, including how claims are attributed.</p>
+    <p style="margin-bottom:0">They are <strong>not</strong> a fact-check of claims against external reality, and
+    <strong>not</strong> a bias, balance or one-sidedness meter. Properly attributed, reported content
+    (a <span class="kbd">REPORTED_CONTEXTUALISED</span> stance) is <strong>expected to score high</strong> even on the
+    most contested topics — that is the stance gate working as designed, not leniency.</p>
+  </div>
+
+  <h2>Provenance &amp; reproducibility</h2>
+  <p>Every result carries provenance: the run ID, model, prompt version, a SHA-256 of the input text, and a UTC
+  timestamp. The deterministic scorer ships with an 8-scenario self-test (<code>npm run selftest</code>), an offline
+  demo (<code>npm run demo:bad</code>), and a live endpoint test (<code>npm run test:endpoint</code>).</p>
+
+  <div class="footer">
+    PTS · Publication Trust Score — two-score framework (PTS-A / PTS-J). Prompt version: PTS v5 / two scores.
+    Generated from the project source; criteria and rules mirror <code>src/lib/rubric.ts</code> and <code>src/lib/scorer.ts</code>.
+  </div>
+
+</body>
+</html>
