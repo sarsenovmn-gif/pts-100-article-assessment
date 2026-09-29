@@ -86,10 +86,13 @@ function buildUserPrompt(articleText: string, opts: AssessOptions): string {
 
 First list, in candidate_passages, every passage that mentions Jews, Judaism,
 Israel, Zionism, the Holocaust or antisemitism (verbatim; empty array if none).
-Then return one assessment for every criterion AS1-AS6 and J1-J11, an entry for
-every conduct clause you considered, and the legal flag. A clear antisemitic
-trope in the publication's own voice is a FAIL, not a PASS.
-Do not calculate the final numerical scores yourself.
+Then return EXACTLY 17 criteria objects — one for each of AS1, AS2, AS3, AS4,
+AS5, AS6 (PTS-A) and J1, J2, J3, J4, J5, J6, J7, J8, J9, J10, J11 (PTS-J). Never
+omit any criterion: even a piece that is plainly antisemitic still needs all of
+its J1-J11 journalistic judgements (PASS or NOT_ASSESSABLE where there is no
+breach). Also return an entry for every conduct clause you considered and the
+legal flag. A clear antisemitic trope in the publication's own voice is a FAIL,
+not a PASS. Do not calculate the final numerical scores yourself.
 
 ${hintBlock}<ARTICLE>
 ${body}
