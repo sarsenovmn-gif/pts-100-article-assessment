@@ -1,32 +1,39 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
-  BLOCK_D_DEDUCTION,
-  BLOCK_D_MAX,
+  AS_CONTESTED,
+  AS_CRITICAL,
+  AS_POINTS,
+  AS_PROFILES,
+  AS_STANCE_GATED,
   CAP_SCORE,
-  CONTESTED,
-  CRITICAL,
+  CRITERION_IDS,
+  J_POINTS,
+  J_PROFILES,
+  JD_DEDUCTION,
+  JD_MAX,
+  JD_PROFILES,
   LOW_CONFIDENCE_REVIEW,
   MODEL,
-  POINTS,
-  PROFILES,
+  type PointDef,
   PROMPT_VERSION,
-  STANCE_GATED,
-  tier,
+  tierA,
+  tierJ,
 } from "./rubric";
 import type {
   Assessment,
-  BlockTotals,
   ConductBreach,
+  CriterionAssessment,
   Designation,
   Finding,
   Provenance,
+  PtsSubScore,
   RejectedFinding,
   ReviewEntry,
-  ScoreResult,
+  Scores,
 } from "./types";
 
 // ============================================================
-// Evidence verification (mirrors _normalise / quote_in_text)
+// Evidence verification (mirrors _normalise / quote matching)
 // ============================================================
 
 const QUOTE_MAP: Record<string, string> = {
@@ -51,10 +58,7 @@ export function _normalise(text: string): string {
   return out.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
-// Section labels the model must not include inside a quote (rule 8).
 const LABEL_PREFIX = /^(headline|standfirst|byline|published|source|body)\s*:\s*/;
-
-// Minimum similarity for an approximate (fuzzy) quote match.
 export const APPROX_THRESHOLD = 0.85;
 
 function levenshtein(a: string, b: string): number {
@@ -83,7 +87,6 @@ function ratio(a: string, b: string): number {
   return 1 - levenshtein(a, b) / maxLen;
 }
 
-/** Best fuzzy ratio of `part` against any similar-length window of `text`. */
 function bestApproxRatio(part: string, text: string): number {
   if (!part) return 1;
   if (text.includes(part)) return 1;
@@ -99,13 +102,7 @@ function bestApproxRatio(part: string, text: string): number {
   return best;
 }
 
-/**
- * Verify a model quote against the article. Mirrors the corrected reference:
- * the quote is normalised, stripped of any section label, split on ellipsis
- * into parts, and each part must match the text either exactly or approximately
- * (ratio >= 0.85). Returns whether it was found and whether any part was only
- * an approximate match.
- */
+/** Verify a model quote against the article (exact or approximate >= 0.85). */
 export function verify_quote(
   quote: string,
   text: string,
@@ -113,14 +110,14 @@ export function verify_quote(
   if (!quote) return { found: false, approximate: false };
   const normText = _normalise(text);
   const parts = _normalise(quote)
-    .split(/\s*\.{2,}\s*/) // ellipsis (… -> ... , or ..) splits the quote
+    .split(/\s*\.{2,}\s*/)
     .map((p) => p.replace(LABEL_PREFIX, "").trim())
     .filter(Boolean);
   if (parts.length === 0) return { found: false, approximate: false };
 
   let approximate = false;
   for (const part of parts) {
-    if (normText.includes(part)) continue; // exact
+    if (normText.includes(part)) continue;
     if (bestApproxRatio(part, normText) >= APPROX_THRESHOLD) {
       approximate = true;
       continue;
@@ -130,7 +127,6 @@ export function verify_quote(
   return { found: true, approximate };
 }
 
-/** True when the quote occurs in the text (exact or approximate). */
 export function quote_in_text(quote: string, text: string): boolean {
   return verify_quote(quote, text).found;
 }
@@ -162,7 +158,7 @@ export function _provenance(
 }
 
 // ============================================================
-// Deterministic PTS-100 scorer (mirrors calculate_pts100)
+// Deterministic two-score PTS scorer
 // ============================================================
 
 /** Python round(): round-half-to-even (banker's rounding). */
@@ -174,19 +170,40 @@ function pyRound(x: number): number {
   return floor % 2 === 0 ? floor : floor + 1;
 }
 
-/**
- * Pure function: no network. Applies every PTS-100 rule to the model's
- * assessment. Faithful port of the reference `calculate_pts100`.
- */
-export function calculate_pts100(
-  assessment: Assessment,
+type EvalConfig = {
+  points: PointDef[];
+  applicable: Set<string>;
+  stanceGated: Set<string>;
+  reviewReason: (cid: string) => string | null;
+  capOf: (cid: string, item: CriterionAssessment, stance: string) => string | null;
+};
+
+type EvalResult = {
+  earned: number;
+  possible: number;
+  findings: Finding[];
+  rejected: RejectedFinding[];
+  notAssessable: string[];
+  reviewQueue: ReviewEntry[];
+  capApplied: boolean;
+  capReason: string | null;
+};
+
+function evaluateScore(
+  cfg: EvalConfig,
+  criteria: Record<string, CriterionAssessment>,
   articleText: string,
-  designation?: Designation | string | null,
-  runId?: string | null,
-): ScoreResult {
-  const warnings: string[] = [];
+  overallStance: string,
+  warnings: string[],
+): EvalResult {
+  const findings: Finding[] = [];
   const rejected: RejectedFinding[] = [];
+  const notAssessable: string[] = [];
   const reviewQueue: ReviewEntry[] = [];
+  let earned = 0;
+  let possible = 0;
+  let capApplied = false;
+  let capReason: string | null = null;
 
   const queue = (criterion: string, reason: string) => {
     if (!reviewQueue.some((e) => e.criterion === criterion && e.reason === reason)) {
@@ -194,69 +211,13 @@ export function calculate_pts100(
     }
   };
 
-  // ---- designation and profile ----
-  let desig = (
-    designation ||
-    assessment.designation ||
-    "ARTICLE"
-  )
-    .toString()
-    .toUpperCase() as Designation;
-  if (!(desig in PROFILES)) {
-    warnings.push(`Unknown designation ${desig}; treated as ARTICLE.`);
-    desig = "ARTICLE";
-  }
-  const applicable = PROFILES[desig];
-
-  // ---- criteria map (tolerate duplicates) ----
-  const criteria: Record<string, Assessment["criteria"][number]> = {};
-  for (const item of assessment.criteria ?? []) {
-    const cid = item.id;
-    if (cid in criteria) {
-      warnings.push(`Duplicate criterion ${cid}; first occurrence kept.`);
-      continue;
-    }
-    criteria[cid] = item;
-  }
-
-  const allIds = POINTS.map((p) => p.id);
-  const missing = allIds.filter((id) => !(id in criteria)).sort();
-  if (missing.length && desig !== "SATIRE") {
-    throw new Error(`Model did not return criteria: ${missing.join(", ")}`);
-  }
-
-  if (desig === "SATIRE") {
-    return {
-      designation: desig,
-      final_score: null,
-      tier: tier(null),
-      note: "Satire is labelled, not scored.",
-      legal_flag: assessment.legal_flag,
-      provenance: _provenance(assessment, articleText, runId),
-    };
-  }
-
-  // ---- criteria A–C ----
-  const earned: BlockTotals = { A: 0, B: 0, C: 0, D: 0 };
-  const possible: BlockTotals = { A: 0, B: 0, C: 0, D: 0 };
-  const notAssessable: string[] = [];
-  const findings: Finding[] = [];
-  let capApplied = false;
-  let capReason: string | null = null;
-
-  const overallStance = assessment.overall_stance ?? "NONE";
-
-  for (const { id: cid, points: maxPoints } of POINTS) {
-    if (!applicable.has(cid)) continue;
-    const block = cid[0] as keyof BlockTotals;
+  for (const { id: cid, points } of cfg.points) {
+    if (!cfg.applicable.has(cid)) continue;
     const item = criteria[cid];
     const status = item.status;
-    // Fix 1: when the model leaves failure_stance unspecified (NONE/empty),
-    // fall back to the publication's overall stance so that genuine failures
-    // are not silently discarded by the stance gate.
+    // Stance fallback: an unspecified failure stance inherits overall_stance.
     const rawStance = item.failure_stance ?? "NONE";
-    const stance =
-      rawStance && rawStance !== "NONE" ? rawStance : overallStance;
+    const stance = rawStance && rawStance !== "NONE" ? rawStance : overallStance;
     const quote = item.evidence_quote || "";
 
     if (status === "NOT_ASSESSABLE") {
@@ -264,21 +225,20 @@ export function calculate_pts100(
       continue;
     }
 
-    possible[block] += maxPoints;
+    possible += points;
 
     if (status === "PASS") {
-      earned[block] += maxPoints;
+      earned += points;
       continue;
     }
 
     if (status !== "FAIL") {
       warnings.push(`${cid}: unknown status ${status}; treated as NOT_ASSESSABLE.`);
-      possible[block] -= maxPoints;
+      possible -= points;
       notAssessable.push(cid);
       continue;
     }
 
-    // ---- FAIL: rules that can refuse the deduction ----
     const check = verify_quote(quote, articleText);
     if (!check.found) {
       rejected.push({
@@ -287,13 +247,13 @@ export function calculate_pts100(
         quote,
         rationale: item.rationale ?? "",
       });
-      earned[block] += maxPoints; // no quote, no deduction
+      earned += points; // no quote, no deduction
       queue(cid, "model alleged a failure without verifiable evidence");
       continue;
     }
 
     if (
-      STANCE_GATED.has(cid) &&
+      cfg.stanceGated.has(cid) &&
       stance !== "OWN_VOICE" &&
       stance !== "UNCRITICAL_AMPLIFICATION"
     ) {
@@ -303,36 +263,30 @@ export function calculate_pts100(
         quote,
         rationale: item.rationale ?? "",
       });
-      earned[block] += maxPoints;
+      earned += points;
       queue(cid, "stance rule refused the failure; check the stance classification");
       continue;
     }
 
-    // ---- accepted deduction ----
     findings.push({
       criterion: cid,
-      points_lost: maxPoints,
+      points_lost: points,
       stance,
       ihra_examples: item.ihra_examples ?? [],
       quote,
-      quote_approximate: check.approximate,
+      quote_match: check.approximate ? "approximate" : "exact",
       rationale: item.rationale ?? "",
       confidence: item.confidence ?? null,
     });
 
-    if (CRITICAL.has(cid)) {
-      queue(cid, "critical criterion failed");
-      if (stance === "OWN_VOICE") {
-        capApplied = true;
-        capReason = `${cid} failed in the publication's own voice`;
-      }
+    const capR = cfg.capOf(cid, item, stance);
+    if (capR) {
+      capApplied = true;
+      capReason = capR;
     }
-    if (CONTESTED.has(cid)) {
-      queue(cid, "contested zone (IHRA 7-10) failed");
-    }
-    if (item.human_review_required) {
-      queue(cid, "model requested review");
-    }
+    const rr = cfg.reviewReason(cid);
+    if (rr) queue(cid, rr);
+    if (item.human_review_required) queue(cid, "model requested review");
     const conf = item.confidence;
     if (
       LOW_CONFIDENCE_REVIEW &&
@@ -343,13 +297,49 @@ export function calculate_pts100(
     }
   }
 
-  // ---- Block D ----
-  possible.D = BLOCK_D_MAX;
-  const breached: ConductBreach[] = [];
+  return {
+    earned,
+    possible,
+    findings,
+    rejected,
+    notAssessable,
+    reviewQueue,
+    capApplied,
+    capReason,
+  };
+}
+
+type ConductResult = {
+  earned: number;
+  possible: number;
+  breaches: ConductBreach[];
+  rejected: RejectedFinding[];
+  reviewQueue: ReviewEntry[];
+  capApplied: boolean;
+  capReason: string | null;
+};
+
+function evaluateConduct(
+  assessment: Assessment,
+  articleText: string,
+): ConductResult {
+  const breaches: ConductBreach[] = [];
+  const rejected: RejectedFinding[] = [];
+  const reviewQueue: ReviewEntry[] = [];
+  let capApplied = false;
+  let capReason: string | null = null;
+
+  const queue = (criterion: string, reason: string) => {
+    if (!reviewQueue.some((e) => e.criterion === criterion && e.reason === reason)) {
+      reviewQueue.push({ criterion, reason });
+    }
+  };
+
   for (const clause of assessment.conduct ?? []) {
     if (!(clause.engaged && clause.breached)) continue;
     const quote = clause.evidence_quote || "";
-    if (!quote_in_text(quote, articleText)) {
+    const check = verify_quote(quote, articleText);
+    if (!check.found) {
       rejected.push({
         criterion: `D${clause.clause}`,
         reason: "evidence quote not found in text",
@@ -359,25 +349,54 @@ export function calculate_pts100(
       queue(`D${clause.clause}`, "conduct breach alleged without verifiable evidence");
       continue;
     }
-    breached.push({
+    breaches.push({
       clause: clause.clause,
       quote,
+      quote_match: check.approximate ? "approximate" : "exact",
       rationale: clause.rationale ?? "",
       confidence: clause.confidence ?? null,
     });
+    if (clause.clause === "8" && clause.fabrication) {
+      capApplied = true;
+      capReason = "fabricated source (clause 8)";
+    }
   }
-  earned.D = Math.max(0, BLOCK_D_MAX - BLOCK_D_DEDUCTION * breached.length);
 
-  // ---- score ----
-  const totalPossible = possible.A + possible.B + possible.C + possible.D;
-  const totalEarned = earned.A + earned.B + earned.C + earned.D;
-  let rawScore: number | null = null;
-  if (totalPossible > 0) {
-    rawScore = pyRound((100.0 * totalEarned) / totalPossible);
-  }
-  let finalScore = rawScore;
-  if (capApplied && rawScore !== null) {
-    finalScore = Math.min(rawScore, CAP_SCORE);
+  const earned = Math.max(0, JD_MAX - JD_DEDUCTION * breaches.length);
+  return {
+    earned,
+    possible: JD_MAX,
+    breaches,
+    rejected,
+    reviewQueue,
+    capApplied,
+    capReason,
+  };
+}
+
+function rescale(earned: number, possible: number): number | null {
+  if (possible <= 0) return null;
+  return pyRound((100.0 * earned) / possible);
+}
+
+/**
+ * Pure function: no network. Produces the two independent PTS-A and PTS-J
+ * scores from the model's assessment.
+ */
+export function calculate_scores(
+  assessment: Assessment,
+  articleText: string,
+  designation?: Designation | string | null,
+  runId?: string | null,
+): Scores {
+  const warnings: string[] = [];
+
+  let desig = (designation || assessment.designation || "ARTICLE")
+    .toString()
+    .toUpperCase() as Designation;
+  if (!(desig in AS_PROFILES)) {
+    warnings.push(`Unknown designation ${desig}; treated as ARTICLE.`);
+    desig = "ARTICLE";
   }
 
   const legal = assessment.legal_flag ?? {
@@ -386,30 +405,185 @@ export function calculate_pts100(
     evidence_quote: "",
     rationale: "",
   };
+  const provenance = _provenance(assessment, articleText, runId);
+
+  if (desig === "SATIRE") {
+    const none: PtsSubScore = {
+      score: null,
+      tier: "Not scored",
+      raw_before_cap: null,
+      cap_applied: false,
+      cap_reason: null,
+      earned: 0,
+      possible: 0,
+      coverage: "0/100 points assessable",
+      findings: [],
+      rejected_findings: [],
+      not_assessable: [],
+      human_review: [],
+    };
+    return {
+      pts_a: none,
+      pts_j: { ...none, conduct_breaches: [] },
+      headline_score: null,
+      designation: desig,
+      language: assessment.language,
+      overall_stance: assessment.overall_stance,
+      legal_flag: { ...legal, note: "Routing flag only. Not a legal finding." },
+      summary: assessment.summary,
+      candidate_passages: assessment.candidate_passages ?? [],
+      warnings,
+      note: "Satire is labelled, not scored.",
+      provenance,
+    };
+  }
+
+  // Build criteria map (tolerate duplicates), require the full set.
+  const criteria: Record<string, CriterionAssessment> = {};
+  for (const item of assessment.criteria ?? []) {
+    if (item.id in criteria) {
+      warnings.push(`Duplicate criterion ${item.id}; first occurrence kept.`);
+      continue;
+    }
+    criteria[item.id] = item;
+  }
+  const missing = CRITERION_IDS.filter((id) => !(id in criteria)).sort();
+  if (missing.length) {
+    throw new Error(`Model did not return criteria: ${missing.join(", ")}`);
+  }
+
+  const overallStance = assessment.overall_stance ?? "NONE";
+
+  // ---- PTS-A ----
+  const a = evaluateScore(
+    {
+      points: AS_POINTS,
+      applicable: AS_PROFILES[desig],
+      stanceGated: AS_STANCE_GATED,
+      reviewReason: (cid) =>
+        AS_CRITICAL.has(cid)
+          ? "critical criterion failed — human review"
+          : AS_CONTESTED.has(cid)
+            ? "contested zone (IHRA 7-10) — human review"
+            : null,
+      capOf: (cid, _item, stance) =>
+        AS_CRITICAL.has(cid) && stance === "OWN_VOICE"
+          ? `${cid} failed in the publication's own voice`
+          : null,
+    },
+    criteria,
+    articleText,
+    overallStance,
+    warnings,
+  );
+  const aRaw = rescale(a.earned, a.possible);
+  const aFinal =
+    a.capApplied && aRaw !== null ? Math.min(aRaw, CAP_SCORE) : aRaw;
+
+  const pts_a: PtsSubScore = {
+    score: aFinal,
+    tier: tierA(aFinal),
+    raw_before_cap: aRaw,
+    cap_applied: a.capApplied,
+    cap_reason: a.capReason,
+    earned: a.earned,
+    possible: a.possible,
+    coverage: `${a.possible}/100 points assessable`,
+    findings: a.findings,
+    rejected_findings: a.rejected,
+    not_assessable: a.notAssessable,
+    human_review: a.reviewQueue,
+  };
+
+  // ---- PTS-J ----
+  const j = evaluateScore(
+    {
+      points: J_POINTS,
+      applicable: J_PROFILES[desig],
+      stanceGated: new Set(), // stance gate is PTS-A only
+      reviewReason: () => null,
+      capOf: (cid, item) =>
+        cid === "J1" && item.fabrication
+          ? "J1 fabrication (invented facts or quotes)"
+          : null,
+    },
+    criteria,
+    articleText,
+    overallStance,
+    warnings,
+  );
+
+  let jEarned = j.earned;
+  let jPossible = j.possible;
+  let jCapApplied = j.capApplied;
+  let jCapReason = j.capReason;
+  const jRejected = [...j.rejected];
+  const jReview = [...j.reviewQueue];
+  let conductBreaches: ConductBreach[] = [];
+
+  if (JD_PROFILES[desig]) {
+    const c = evaluateConduct(assessment, articleText);
+    jEarned += c.earned;
+    jPossible += c.possible;
+    conductBreaches = c.breaches;
+    jRejected.push(...c.rejected);
+    for (const r of c.reviewQueue) {
+      if (!jReview.some((e) => e.criterion === r.criterion && e.reason === r.reason)) {
+        jReview.push(r);
+      }
+    }
+    if (c.capApplied) {
+      jCapApplied = true;
+      jCapReason = jCapReason ?? c.capReason;
+    }
+  }
+
+  const jRaw = rescale(jEarned, jPossible);
+  const jFinal =
+    jCapApplied && jRaw !== null ? Math.min(jRaw, CAP_SCORE) : jRaw;
+
+  const pts_j: PtsSubScore = {
+    score: jFinal,
+    tier: tierJ(jFinal),
+    raw_before_cap: jRaw,
+    cap_applied: jCapApplied,
+    cap_reason: jCapReason,
+    earned: jEarned,
+    possible: jPossible,
+    coverage: `${jPossible}/100 points assessable`,
+    findings: j.findings,
+    rejected_findings: jRejected,
+    not_assessable: j.notAssessable,
+    human_review: jReview,
+    conduct_breaches: conductBreaches,
+  };
+
+  const headline_score =
+    aFinal !== null && jFinal !== null ? Math.min(aFinal, jFinal) : null;
 
   return {
+    pts_a,
+    pts_j,
+    headline_score,
     designation: desig,
     language: assessment.language,
     overall_stance: assessment.overall_stance,
-    final_score: finalScore,
-    tier: tier(finalScore),
-    raw_score_before_cap: rawScore,
-    cap_applied: capApplied,
-    cap_reason: capReason,
-    points: {
-      earned,
-      possible,
-      coverage: `${totalPossible}/100 points assessable`,
-    },
-    not_assessable: notAssessable,
-    findings,
-    conduct_breaches: breached,
-    rejected_findings: rejected,
-    human_review: reviewQueue,
     legal_flag: { ...legal, note: "Routing flag only. Not a legal finding." },
-    candidate_passages: assessment.candidate_passages ?? [],
     summary: assessment.summary,
+    candidate_passages: assessment.candidate_passages ?? [],
     warnings,
-    provenance: _provenance(assessment, articleText, runId),
+    provenance,
   };
+}
+
+/**
+ * Batch error-analysis label: predicted antisemitic when any accepted PTS-A
+ * deduction (excluding AS6) has stance OWN_VOICE or UNCRITICAL_AMPLIFICATION.
+ */
+export function predictedAntisemitic(scores: Scores): boolean {
+  return (scores.pts_a.findings ?? []).some(
+    (f) =>
+      f.criterion !== "AS6" &&
+      (f.stance === "OWN_VOICE" || f.stance === "UNCRITICAL_AMPLIFICATION"),
+  );
 }

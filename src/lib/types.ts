@@ -16,6 +16,8 @@ export type LegalCategory =
   | "HOLOCAUST_DENIAL"
   | "OTHER";
 
+export type QuoteMatch = "exact" | "approximate";
+
 export type CriterionAssessment = {
   id: string;
   status: CriterionStatus;
@@ -25,6 +27,8 @@ export type CriterionAssessment = {
   confidence: number;
   human_review_required: boolean;
   failure_stance: "NONE" | Stance;
+  /** J1 / clause 8: invented facts, quotes or a fabricated source. */
+  fabrication?: boolean;
 };
 
 export type ConductAssessment = {
@@ -34,6 +38,7 @@ export type ConductAssessment = {
   evidence_quote: string;
   rationale: string;
   confidence: number;
+  fabrication?: boolean;
 };
 
 export type LegalFlag = {
@@ -78,7 +83,7 @@ export type Finding = {
   stance: string;
   ihra_examples: number[];
   quote: string;
-  quote_approximate?: boolean;
+  quote_match: QuoteMatch;
   rationale: string;
   confidence: number | null;
 };
@@ -93,13 +98,12 @@ export type RejectedFinding = {
 export type ConductBreach = {
   clause: string;
   quote: string;
+  quote_match: QuoteMatch;
   rationale: string;
   confidence: number | null;
 };
 
 export type ReviewEntry = { criterion: string; reason: string };
-
-export type BlockTotals = { A: number; B: number; C: number; D: number };
 
 export type Provenance = {
   model?: string;
@@ -111,30 +115,38 @@ export type Provenance = {
   usage?: Record<string, unknown>;
 };
 
-export type ScoreResult = {
+/** One of the two independent 100-point scores (PTS-A or PTS-J). */
+export type PtsSubScore = {
+  score: number | null;
+  tier: string;
+  raw_before_cap: number | null;
+  cap_applied: boolean;
+  cap_reason: string | null;
+  earned: number;
+  possible: number;
+  coverage: string;
+  findings: Finding[];
+  rejected_findings: RejectedFinding[];
+  not_assessable: string[];
+  human_review: ReviewEntry[];
+  /** PTS-J only: verified Block D (conduct) breaches. */
+  conduct_breaches?: ConductBreach[];
+};
+
+/** The full two-score result returned by calculate_scores. */
+export type Scores = {
+  pts_a: PtsSubScore;
+  pts_j: PtsSubScore;
+  /** Display convenience only — min(pts_a, pts_j); never a blended score. */
+  headline_score: number | null;
   designation: Designation;
   language?: string;
   overall_stance?: Stance;
-  final_score: number | null;
-  tier: string;
-  raw_score_before_cap?: number | null;
-  cap_applied?: boolean;
-  cap_reason?: string | null;
-  points?: {
-    earned: BlockTotals;
-    possible: BlockTotals;
-    coverage: string;
-  };
-  not_assessable?: string[];
-  findings?: Finding[];
-  conduct_breaches?: ConductBreach[];
-  rejected_findings?: RejectedFinding[];
-  human_review?: ReviewEntry[];
   legal_flag?: LegalFlag & { note?: string };
-  candidate_passages?: string[];
   summary?: string;
-  note?: string;
+  candidate_passages?: string[];
   warnings?: string[];
+  note?: string;
   provenance: Provenance;
   source?: {
     url: string | null;
@@ -152,5 +164,5 @@ export type ScoreResult = {
 export type AssessResponse = {
   parts: ArticleParts;
   assessment: Assessment;
-  score: ScoreResult;
+  score: Scores;
 };
