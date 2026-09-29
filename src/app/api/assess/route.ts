@@ -94,16 +94,40 @@ export async function POST(req: NextRequest) {
       languageHint: language,
     });
 
+    const debug =
+      req.nextUrl.searchParams.get("debug") === "1" ||
+      process.env.PTS_DEBUG === "1";
+
+    if (debug) {
+      return NextResponse.json({
+        ...result,
+        debug: {
+          provider:
+            process.env.OPENROUTER_API_KEY
+              ? "openrouter"
+              : process.env.ANTHROPIC_API_KEY
+                ? "anthropic"
+                : "mock",
+          stop_reason: result.score.provenance?.stop_reason,
+          usage: result.score.provenance?.usage,
+          raw_assessment: result.assessment,
+        },
+      });
+    }
+
     return NextResponse.json(result);
   } catch (e) {
+    const stopReason = (e as { stop_reason?: string })?.stop_reason;
+    const isModelError = e instanceof Error && e.name === "ModelError";
     return NextResponse.json(
       {
         error:
           e instanceof Error
             ? e.message
             : "Assessment failed. Check the server logs.",
+        ...(stopReason ? { stop_reason: stopReason } : {}),
       },
-      { status: 500 },
+      { status: isModelError ? 502 : 500 },
     );
   }
 }

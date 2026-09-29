@@ -11,7 +11,10 @@ export const OPENROUTER_BASE_URL =
   process.env.OPENROUTER_BASE_URL || "https://openrouter.ai/api/v1";
 export const OPENROUTER_MODEL =
   process.env.OPENROUTER_MODEL || "anthropic/claude-haiku-4.5";
-export const MAX_TOKENS = 6000;
+// The full assessment (candidate_passages + 14 criteria + conduct + legal) is
+// long; keep generous headroom (>= 6000) so it is never truncated. Truncation
+// is still detected and surfaced as a clear error rather than a partial object.
+export const MAX_TOKENS = 8000;
 export const TEMPERATURE = 0;
 export const MAX_RETRIES = 4;
 

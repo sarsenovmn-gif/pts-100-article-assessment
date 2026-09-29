@@ -107,6 +107,7 @@ export type Provenance = {
   run_id?: string;
   timestamp_utc?: string;
   input_sha256?: string;
+  stop_reason?: string;
   usage?: Record<string, unknown>;
 };
 

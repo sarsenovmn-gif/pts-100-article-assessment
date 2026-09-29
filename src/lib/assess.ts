@@ -30,6 +30,38 @@ export type AssessOptions = {
 
 export type Provider = "anthropic" | "openrouter" | "mock";
 
+/** Error carrying the model's stop/finish reason so the API can surface it. */
+export class ModelError extends Error {
+  stop_reason?: string;
+  constructor(message: string, stopReason?: string) {
+    super(message);
+    this.name = "ModelError";
+    this.stop_reason = stopReason;
+  }
+}
+
+/**
+ * Guard: a truncated or malformed model response can yield an object without a
+ * usable `criteria` array. Reject it here with a clear message instead of
+ * letting the scorer throw the confusing "Model did not return criteria".
+ */
+function validateAssessment(assessment: unknown, stopReason?: string): Assessment {
+  const a = assessment as Partial<Assessment> | null | undefined;
+  if (!a || typeof a !== "object") {
+    throw new ModelError("Model returned no structured assessment.", stopReason);
+  }
+  if (!Array.isArray(a.criteria) || a.criteria.length === 0) {
+    throw new ModelError(
+      "Model returned an incomplete assessment (no criteria). " +
+        (stopReason === "max_tokens" || stopReason === "length"
+          ? "Output was truncated; increase max_tokens."
+          : "Retry, or enable debug to inspect the raw model output."),
+      stopReason,
+    );
+  }
+  return a as Assessment;
+}
+
 /**
  * Choose the model provider. OpenRouter takes priority when its key is set
  * (opt-in third-party router), then the issued Anthropic key, else mock.
@@ -97,29 +129,41 @@ async function assessViaAnthropic(
     tool_choice: { type: "tool", name: ASSESSMENT_TOOL.name },
   });
 
+  console.log(
+    `[pts-100] anthropic model=${response.model} stop_reason=${response.stop_reason} usage=${JSON.stringify(response.usage ?? {})}`,
+  );
+
   if (response.stop_reason === "max_tokens") {
-    throw new Error("Model output was cut off (max_tokens). Increase MAX_TOKENS.");
+    throw new ModelError(
+      "Model output truncated (max_tokens). Increase max_tokens and retry.",
+      "max_tokens",
+    );
   }
 
   for (const block of response.content) {
     if (block.type === "tool_use" && block.name === ASSESSMENT_TOOL.name) {
-      const assessment = block.input as Assessment;
+      const assessment = validateAssessment(block.input, response.stop_reason ?? undefined);
       assessment._provenance = {
         model: response.model || MODEL,
         prompt_version: PROMPT_VERSION,
+        stop_reason: response.stop_reason ?? undefined,
         usage: response.usage ?? {},
       };
       return assessment;
     }
   }
 
-  throw new Error("Model returned no structured assessment.");
+  throw new ModelError(
+    "Model returned no structured assessment.",
+    response.stop_reason ?? undefined,
+  );
 }
 
 type OpenRouterResponse = {
   model?: string;
   usage?: Record<string, unknown>;
   choices?: {
+    finish_reason?: string;
     message?: {
       tool_calls?: { function?: { name?: string; arguments?: string } }[];
     };
@@ -186,19 +230,40 @@ async function assessViaOpenRouter(
     }
 
     const data = (await res.json()) as OpenRouterResponse;
+    const finishReason = data.choices?.[0]?.finish_reason;
+    console.log(
+      `[pts-100] openrouter model=${data.model} finish_reason=${finishReason} usage=${JSON.stringify(data.usage ?? {})}`,
+    );
+
+    if (finishReason === "length") {
+      throw new ModelError(
+        "Model output truncated (length). Increase max_tokens and retry.",
+        "length",
+      );
+    }
+
     const call = data.choices?.[0]?.message?.tool_calls?.[0]?.function;
     if (!call?.arguments) {
-      throw new Error("OpenRouter returned no structured assessment (no tool call).");
+      throw new ModelError(
+        "Model returned no structured assessment (no tool call).",
+        finishReason,
+      );
     }
-    let assessment: Assessment;
+    let parsed: unknown;
     try {
-      assessment = JSON.parse(call.arguments) as Assessment;
+      parsed = JSON.parse(call.arguments);
     } catch {
-      throw new Error("OpenRouter tool arguments were not valid JSON.");
+      throw new ModelError(
+        "Model tool arguments were not valid JSON" +
+          (finishReason === "length" ? " (output truncated)." : "."),
+        finishReason,
+      );
     }
+    const assessment = validateAssessment(parsed, finishReason);
     assessment._provenance = {
       model: data.model || OPENROUTER_MODEL,
       prompt_version: PROMPT_VERSION,
+      stop_reason: finishReason,
       usage: data.usage ?? {},
     };
     return assessment;

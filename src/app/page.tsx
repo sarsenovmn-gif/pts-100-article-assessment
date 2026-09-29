@@ -23,11 +23,13 @@ export default function Home() {
   const [language, setLanguage] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [stopReason, setStopReason] = useState<string | null>(null);
   const [result, setResult] = useState<AssessResponse | null>(null);
 
   async function runAssessment() {
     setLoading(true);
     setError(null);
+    setStopReason(null);
     setResult(null);
     try {
       const body: Record<string, string> = {};
@@ -45,7 +47,10 @@ export default function Home() {
         body: JSON.stringify(body),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Assessment failed.");
+      if (!res.ok) {
+        if (data.stop_reason) setStopReason(String(data.stop_reason));
+        throw new Error(data.error || "Assessment failed.");
+      }
       setResult(data as AssessResponse);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong.");
@@ -175,6 +180,11 @@ export default function Home() {
       {error && (
         <div className="mt-6 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
           {error}
+          {stopReason && (
+            <span className="mt-1 block text-xs text-red-300/80">
+              stop_reason: <code className="font-mono">{stopReason}</code>
+            </span>
+          )}
         </div>
       )}
 

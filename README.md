@@ -99,8 +99,32 @@ npm run selftest
 
 It verifies: a clean article reaching 100 (88/100 coverage), an unverifiable A1
 failure being rejected, a verified own-voice A2 failure capping at 39, the A3
-stance gate, POST-profile rescaling, Block D verification, and SATIRE returning
-no score.
+stance gate, POST-profile rescaling, Block D verification, SATIRE returning no
+score, the stance fallback (a FAIL with `failure_stance: NONE` inheriting the
+overall stance), and approximate quote matching.
+
+### Endpoint integration test
+
+With the dev server running and a model key set:
+
+```bash
+npm run test:endpoint
+# or against production:
+BASE_URL=https://pts-100-article-assessment.vercel.app npm run test:endpoint
+```
+
+It posts a synthetic antisemitic own-voice fixture (asserts `final_score <= 39`,
+`cap_applied`, findings include A1 & B2, human review contains A2 & B2) and the
+clean Chicago-park sample (asserts score 100 with coverage < 100).
+
+### Debugging a failed assessment
+
+Add `?debug=1` to the endpoint (or set `PTS_DEBUG=1`) to include the raw model
+assessment, the provider, the model `stop_reason`/`finish_reason` and token usage
+in the response. Every call also logs `stop_reason` and `usage` server-side. If
+the model output is truncated, the API returns HTTP 502 with a clear
+"output truncated; increase max_tokens" message and the `stop_reason`, instead of
+passing a partial object to the scorer.
 
 ## Environment variables
 
