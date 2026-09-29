@@ -65,9 +65,18 @@ export default function Home() {
   return (
     <main className="mx-auto w-full max-w-3xl flex-1 px-5 py-12 sm:py-16">
       <header className="mb-8">
-        <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-medium text-indigo-300">
-          <span className="h-1.5 w-1.5 rounded-full bg-indigo-400" />
-          PTS · Publication Trust Score
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-medium text-indigo-300">
+            <span className="h-1.5 w-1.5 rounded-full bg-indigo-400" />
+            PTS · Publication Trust Score
+          </div>
+          <a
+            href="/PTS-Overview.pdf"
+            download="PTS-Overview.pdf"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:border-indigo-400/50 hover:bg-white/10 hover:text-white"
+          >
+            <DownloadIcon /> Download framework (PDF)
+          </a>
         </div>
         <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
           Publication Trust Score
@@ -226,5 +235,25 @@ export default function Home() {
 function Spinner() {
   return (
     <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+  );
+}
+
+function DownloadIcon() {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <polyline points="7 10 12 15 17 10" />
+      <line x1="12" y1="15" x2="12" y2="3" />
+    </svg>
   );
 }
