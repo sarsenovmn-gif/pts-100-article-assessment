@@ -12,14 +12,14 @@ import {
   PTS_SYSTEM_PROMPT,
   TEMPERATURE,
 } from "./rubric";
-import { _sanitise_article, calculate_pts100 } from "./scorer";
+import { _sanitise_article, calculate_scores } from "./scorer";
 import { buildPublicationText } from "./extract";
 import type {
   ArticleParts,
   Assessment,
   CriterionAssessment,
   Designation,
-  ScoreResult,
+  Scores,
 } from "./types";
 
 export type AssessOptions = {
@@ -81,15 +81,15 @@ function buildUserPrompt(articleText: string, opts: AssessOptions): string {
   if (languageHint) hints.push(`Language hint from the caller: ${languageHint}.`);
   const hintBlock = hints.length ? `${hints.join("\n")}\n\n` : "";
 
-  return `Assess the following publication according to the complete PTS-100
-framework supplied in the system instructions.
+  return `Assess the following publication according to the complete two-score
+(PTS-A + PTS-J) framework supplied in the system instructions.
 
 First list, in candidate_passages, every passage that mentions Jews, Judaism,
 Israel, Zionism, the Holocaust or antisemitism (verbatim; empty array if none).
-Then return one assessment for every criterion A1-C4, an entry for every
-Block D clause you considered, and the legal flag. A clear antisemitic trope in
-the publication's own voice is a FAIL, not a PASS.
-Do not calculate the final numerical score yourself.
+Then return one assessment for every criterion AS1-AS6 and J1-J11, an entry for
+every conduct clause you considered, and the legal flag. A clear antisemitic
+trope in the publication's own voice is a FAIL, not a PASS.
+Do not calculate the final numerical scores yourself.
 
 ${hintBlock}<ARTICLE>
 ${body}
@@ -274,21 +274,22 @@ async function assessViaOpenRouter(
   );
 }
 
+/** Criteria that usually need information absent from a bare text sample. */
+const MOCK_NOT_ASSESSABLE = new Set(["J3", "J7", "J8", "J9", "J11"]);
+
 /**
- * Deterministic mock so the app is usable without an API key. Mirrors the
- * reference `_mock_assessment`: all-PASS with B4/C2/C3 NOT_ASSESSABLE.
+ * Deterministic mock so the app is usable without an API key. All-PASS across
+ * PTS-A (AS1-AS6) and PTS-J (J1-J11), with the corrections/disclosure criteria
+ * marked NOT_ASSESSABLE (no publisher metadata in a bare sample).
  */
 export function mockAssessment(input?: string | ArticleParts): Assessment {
   const criteria: CriterionAssessment[] = CRITERION_IDS.map((id) => ({
     id,
-    status: (["B4", "C2", "C3"] as string[]).includes(id)
-      ? "NOT_ASSESSABLE"
-      : "PASS",
+    status: MOCK_NOT_ASSESSABLE.has(id) ? "NOT_ASSESSABLE" : "PASS",
     evidence_quote: "",
-    rationale:
-      id === "B4" || id === "C2" || id === "C3"
-        ? "Not enough information in the supplied text to assess this criterion."
-        : "ok",
+    rationale: MOCK_NOT_ASSESSABLE.has(id)
+      ? "Not enough information in the supplied text to assess this criterion."
+      : "ok",
     ihra_examples: [],
     confidence: 0.9,
     human_review_required: false,
@@ -302,7 +303,7 @@ export function mockAssessment(input?: string | ArticleParts): Assessment {
     summary:
       "[MOCK] No model key configured, so this is a placeholder all-PASS assessment" +
       (headline ? ` for “${headline}”.` : ".") +
-      " Set ANTHROPIC_API_KEY (or OPENROUTER_API_KEY) for a real PTS-100 evaluation.",
+      " Set ANTHROPIC_API_KEY (or OPENROUTER_API_KEY) for a real PTS assessment.",
     language: "en",
     designation: "ARTICLE",
     overall_stance: "OWN_VOICE",
@@ -323,12 +324,12 @@ export function mockAssessment(input?: string | ArticleParts): Assessment {
 export async function scorePublication(
   articleText: string,
   opts: AssessOptions = {},
-): Promise<{ assessment: Assessment; score: ScoreResult; mocked: boolean }> {
+): Promise<{ assessment: Assessment; score: Scores; mocked: boolean }> {
   const mocked = getProvider() === "mock";
   const assessment = mocked
     ? mockAssessment(articleText)
     : await assessArticle(articleText, opts);
-  const score = calculate_pts100(
+  const score = calculate_scores(
     assessment,
     articleText,
     opts.designation ?? undefined,
@@ -342,7 +343,7 @@ export async function scorePublication(
 export async function scoreFromParts(
   parts: ArticleParts,
   opts: AssessOptions = {},
-): Promise<{ parts: ArticleParts; assessment: Assessment; score: ScoreResult }> {
+): Promise<{ parts: ArticleParts; assessment: Assessment; score: Scores }> {
   const text = buildPublicationText(parts);
   const { assessment, score, mocked } = await scorePublication(text, opts);
 
