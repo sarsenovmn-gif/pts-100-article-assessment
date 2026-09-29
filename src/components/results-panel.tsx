@@ -341,6 +341,21 @@ export function ResultsPanel({
         </div>
       </div>
 
+      {!isSatire && (
+        <div className="rounded-xl border border-white/10 bg-white/[0.02] px-4 py-3 text-xs leading-5 text-zinc-500">
+          <span className="font-semibold text-zinc-400">Scope:</span> these scores
+          judge the <span className="text-zinc-300">text as written</span> —
+          antisemitism (IHRA) and journalistic-standards breaches (IMPRESS)
+          detectable in the piece itself, including how claims are attributed. They
+          are <span className="text-zinc-300">not</span> a fact-check of claims
+          against external reality, and <span className="text-zinc-300">not</span>{" "}
+          a bias, balance or one-sidedness meter. Reported, attributed content (a
+          {" "}
+          <span className="font-mono text-zinc-400">REPORTED_CONTEXTUALISED</span>{" "}
+          stance) is expected to score high even on a contested topic.
+        </div>
+      )}
+
       {score.note && (
         <div className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-zinc-400">
           {score.note}
