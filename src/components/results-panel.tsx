@@ -246,6 +246,14 @@ function SubScoreCard({
         </div>
       </div>
 
+      {sub.score !== null && sub.score >= 60 && sub.possible < 100 && (
+        <div className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/[0.07] px-3 py-2 text-[11px] leading-4 text-amber-200/80">
+          {100 - sub.possible} of 100 points weren’t assessable from this text
+          (marked N/A below). The score reflects the absence of detected problems
+          in what could be checked — it is not a full audit.
+        </div>
+      )}
+
       {sub.cap_applied && (
         <div className="mt-3 rounded-xl border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs text-red-200">
           <span className="font-semibold">Cap applied (39).</span>{" "}
