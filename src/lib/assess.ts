@@ -1,152 +1,176 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { CRITERIA, bandFor } from "./rubric";
-import type { ArticleMeta, Assessment, CriterionResult } from "./types";
+import {
+  ANTHROPIC_VERSION,
+  ASSESSMENT_TOOL,
+  CRITERION_IDS,
+  MAX_RETRIES,
+  MAX_TOKENS,
+  MODEL,
+  PROMPT_VERSION,
+  PTS_SYSTEM_PROMPT,
+  TEMPERATURE,
+} from "./rubric";
+import { _sanitise_article, calculate_pts100 } from "./scorer";
+import { buildPublicationText } from "./extract";
+import type {
+  ArticleParts,
+  Assessment,
+  CriterionAssessment,
+  Designation,
+  ScoreResult,
+} from "./types";
 
-const DEFAULT_MODEL = process.env.ANTHROPIC_MODEL || "claude-3-5-haiku-latest";
-
-function buildPrompt(article: ArticleMeta): string {
-  const criteriaBlock = CRITERIA.map(
-    (c) => `- ${c.id} (${c.name}): ${c.description}\n  Guidance: ${c.guidance}`,
-  ).join("\n");
-
-  return [
-    "You are a rigorous editorial assessor running the PTS-100 pipeline.",
-    "Assess the article below against each labelled criterion.",
-    "",
-    "Rules:",
-    "- Score each criterion 0-100, OR mark it NOT_ASSESSABLE if the article lacks",
-    "  the material needed to judge it. Do not guess.",
-    "- Every point you make MUST be backed by a short verbatim quote copied",
-    "  exactly from the BODY. Never invent quotes. If you cannot find supporting",
-    "  text, do not make the claim.",
-    "- The overall score is the mean of the assessable criteria, rescaled to 100.",
-    "",
-    "Criteria:",
-    criteriaBlock,
-    "",
-    "Return ONLY valid JSON matching this shape (no markdown, no prose):",
-    "{",
-    '  "summary": string,',
-    '  "criteria": [',
-    '    { "id": "C1", "assessable": boolean, "score": number|null,',
-    '      "rationale": string, "evidence": [string, ...] }',
-    "  ]",
-    "}",
-    "",
-    "=== ARTICLE ===",
-    `HEADLINE: ${article.title}`,
-    `STANDFIRST: ${article.standfirst ?? "(none)"}`,
-    `BYLINE: ${article.byline ?? "(none)"}`,
-    `PUBLISHED: ${article.published ?? "(none)"}`,
-    `SOURCE: ${article.source ?? "(none)"}`,
-    "BODY:",
-    article.body.slice(0, 24000),
-  ].join("\n");
-}
-
-type ModelCriterion = {
-  id: string;
-  assessable: boolean;
-  score: number | null;
-  rationale: string;
-  evidence: string[];
+export type AssessOptions = {
+  designation?: Designation | string | null;
+  languageHint?: string | null;
+  runId?: string | null;
 };
 
-function extractJson(text: string): { summary: string; criteria: ModelCriterion[] } {
-  const start = text.indexOf("{");
-  const end = text.lastIndexOf("}");
-  if (start === -1 || end === -1) throw new Error("Model did not return JSON.");
-  return JSON.parse(text.slice(start, end + 1));
+function hasApiKey(): boolean {
+  return Boolean((process.env.ANTHROPIC_API_KEY || "").trim());
 }
 
-function assemble(
-  article: ArticleMeta,
-  summary: string,
-  modelCriteria: ModelCriterion[],
-  model: string,
-  mocked: boolean,
-): Assessment {
-  const criteria: CriterionResult[] = CRITERIA.map((c) => {
-    const m = modelCriteria.find((x) => x.id === c.id);
-    const assessable = m?.assessable ?? false;
-    const rawScore = m?.score;
-    const score =
-      assessable && typeof rawScore === "number"
-        ? Math.max(0, Math.min(100, Math.round(rawScore)))
-        : null;
-    return {
-      id: c.id,
-      name: c.name,
-      description: c.description,
-      assessable,
-      score,
-      rationale: m?.rationale?.trim() || "No rationale provided.",
-      evidence: Array.isArray(m?.evidence) ? m!.evidence.slice(0, 5) : [],
-    };
+/** Send one publication to the model and return the structured assessment. */
+export async function assessArticle(
+  articleText: string,
+  opts: AssessOptions = {},
+): Promise<Assessment> {
+  const { designation, languageHint } = opts;
+  const body = _sanitise_article(articleText);
+
+  const hints: string[] = [];
+  if (designation) hints.push(`Designation stated by the caller: ${designation}. Use it.`);
+  if (languageHint) hints.push(`Language hint from the caller: ${languageHint}.`);
+  const hintBlock = hints.length ? `${hints.join("\n")}\n\n` : "";
+
+  const userPrompt = `Assess the following publication according to the complete PTS-100
+framework supplied in the system instructions.
+
+Return one assessment for every criterion A1-C4, an entry for every
+Block D clause you considered, and the legal flag.
+Do not calculate the final numerical score yourself.
+
+${hintBlock}<ARTICLE>
+${body}
+</ARTICLE>`;
+
+  const client = new Anthropic({
+    apiKey: (process.env.ANTHROPIC_API_KEY || "").trim(),
+    baseURL: process.env.ANTHROPIC_BASE_URL || undefined,
+    maxRetries: MAX_RETRIES,
+    defaultHeaders: { "anthropic-version": ANTHROPIC_VERSION },
   });
 
-  const scored = criteria.filter((c) => c.assessable && c.score !== null);
-  const overallScore = scored.length
-    ? Math.round(scored.reduce((s, c) => s + (c.score ?? 0), 0) / scored.length)
-    : 0;
+  const response = await client.messages.create({
+    model: MODEL,
+    max_tokens: MAX_TOKENS,
+    temperature: TEMPERATURE,
+    system: PTS_SYSTEM_PROMPT,
+    messages: [{ role: "user", content: userPrompt }],
+    tools: [ASSESSMENT_TOOL as unknown as Anthropic.Tool],
+    tool_choice: { type: "tool", name: ASSESSMENT_TOOL.name },
+  });
+
+  if (response.stop_reason === "max_tokens") {
+    throw new Error("Model output was cut off (max_tokens). Increase MAX_TOKENS.");
+  }
+
+  for (const block of response.content) {
+    if (block.type === "tool_use" && block.name === ASSESSMENT_TOOL.name) {
+      const assessment = block.input as Assessment;
+      assessment._provenance = {
+        model: response.model || MODEL,
+        prompt_version: PROMPT_VERSION,
+        usage: response.usage ?? {},
+      };
+      return assessment;
+    }
+  }
+
+  throw new Error("Model returned no structured assessment.");
+}
+
+/**
+ * Deterministic mock so the app is usable without an API key. Mirrors the
+ * reference `_mock_assessment`: all-PASS with B4/C2/C3 NOT_ASSESSABLE.
+ */
+export function mockAssessment(input?: string | ArticleParts): Assessment {
+  const criteria: CriterionAssessment[] = CRITERION_IDS.map((id) => ({
+    id,
+    status: (["B4", "C2", "C3"] as string[]).includes(id)
+      ? "NOT_ASSESSABLE"
+      : "PASS",
+    evidence_quote: "",
+    rationale:
+      id === "B4" || id === "C2" || id === "C3"
+        ? "Not enough information in the supplied text to assess this criterion."
+        : "ok",
+    ihra_examples: [],
+    confidence: 0.9,
+    human_review_required: false,
+    failure_stance: "NONE",
+  }));
+
+  const headline =
+    typeof input === "object" && input?.headline ? input.headline : undefined;
 
   return {
-    overallScore,
-    band: bandFor(overallScore),
-    summary: summary.trim() || "No summary provided.",
+    summary:
+      "[MOCK] No ANTHROPIC_API_KEY configured, so this is a placeholder all-PASS assessment" +
+      (headline ? ` for “${headline}”.` : ".") +
+      " Set ANTHROPIC_API_KEY for a real PTS-100 evaluation.",
+    language: "en",
+    designation: "ARTICLE",
+    overall_stance: "OWN_VOICE",
     criteria,
-    article,
-    model,
-    mocked,
+    conduct: [],
+    legal_flag: {
+      possible_illegal: false,
+      category: "NONE",
+      evidence_quote: "",
+      rationale: "",
+    },
+    _provenance: { model: "mock", prompt_version: PROMPT_VERSION },
   };
 }
 
-/** Deterministic mock so the app is usable without an API key. */
-export function mockAssessment(article: ArticleMeta): Assessment {
-  const seed = article.wordCount;
-  const modelCriteria: ModelCriterion[] = CRITERIA.map((c, i) => {
-    const assessable = !(c.id === "C2" && article.wordCount < 120);
-    return {
-      id: c.id,
-      assessable,
-      score: assessable ? 55 + ((seed + i * 13) % 35) : null,
-      rationale: assessable
-        ? `[MOCK] Heuristic assessment for ${c.name} based on ${article.wordCount} words. Set ANTHROPIC_API_KEY for a real evaluation.`
-        : "[MOCK] Not enough material in the article to assess this criterion.",
-      evidence: assessable
-        ? [article.body.split(/(?<=[.!?])\s/)[i]?.trim() || article.title]
-        : [],
-    };
-  });
-  return assemble(
-    article,
-    "[MOCK] Sample assessment generated without a language model. Add ANTHROPIC_API_KEY to enable real PTS-100 scoring.",
-    modelCriteria,
-    "mock",
-    true,
+/** One call: model (or mock) assessment + deterministic scoring. */
+export async function scorePublication(
+  articleText: string,
+  opts: AssessOptions = {},
+): Promise<{ assessment: Assessment; score: ScoreResult; mocked: boolean }> {
+  const mocked = !hasApiKey();
+  const assessment = mocked
+    ? mockAssessment(articleText)
+    : await assessArticle(articleText, opts);
+  const score = calculate_pts100(
+    assessment,
+    articleText,
+    opts.designation ?? undefined,
+    opts.runId ?? undefined,
   );
+  if (mocked) score.mocked = true;
+  return { assessment, score, mocked };
 }
 
-export async function assessArticle(article: ArticleMeta): Promise<Assessment> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) return mockAssessment(article);
+/** Combine labelled parts -> publication text -> assess + score. */
+export async function scoreFromParts(
+  parts: ArticleParts,
+  opts: AssessOptions = {},
+): Promise<{ parts: ArticleParts; assessment: Assessment; score: ScoreResult }> {
+  const text = buildPublicationText(parts);
+  const { assessment, score, mocked } = await scorePublication(text, opts);
 
-  const client = new Anthropic({
-    apiKey,
-    baseURL: process.env.ANTHROPIC_BASE_URL || undefined,
-  });
-
-  const message = await client.messages.create({
-    model: DEFAULT_MODEL,
-    max_tokens: 2000,
-    messages: [{ role: "user", content: buildPrompt(article) }],
-  });
-
-  const text = message.content
-    .filter((b): b is Anthropic.TextBlock => b.type === "text")
-    .map((b) => b.text)
-    .join("\n");
-
-  const parsed = extractJson(text);
-  return assemble(article, parsed.summary, parsed.criteria, DEFAULT_MODEL, false);
+  const partsOut: ArticleParts = { ...parts, mocked };
+  score.source = {
+    url: parts.url,
+    source: parts.source,
+    headline: parts.headline,
+    byline: parts.byline,
+    published: parts.published,
+    extractor: parts.extractor,
+    warning: parts.warning,
+    body_chars: parts.bodyChars,
+  };
+  return { parts: partsOut, assessment, score };
 }

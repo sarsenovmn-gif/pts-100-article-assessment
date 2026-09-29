@@ -1,13 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
-import { assessArticle } from "@/lib/assess";
 import { extractFromUrl, fromRawText } from "@/lib/extract";
-import type { ArticleMeta } from "@/lib/types";
+import { scoreFromParts } from "@/lib/assess";
+import type { ArticleParts, Designation } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
+const DESIGNATIONS: Designation[] = ["ARTICLE", "POST", "DOCUMENTARY", "SATIRE"];
+
+type Body = {
+  url?: string;
+  text?: string;
+  title?: string;
+  designation?: string;
+  language?: string;
+};
+
 export async function POST(req: NextRequest) {
-  let payload: { url?: string; text?: string; title?: string };
+  let payload: Body;
   try {
     payload = await req.json();
   } catch {
@@ -24,8 +34,23 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  let designation: Designation | undefined;
+  if (payload.designation && payload.designation !== "auto") {
+    const d = payload.designation.toUpperCase();
+    if (!DESIGNATIONS.includes(d as Designation)) {
+      return NextResponse.json(
+        { error: `Unknown designation: ${payload.designation}` },
+        { status: 400 },
+      );
+    }
+    designation = d as Designation;
+  }
+
+  const language = payload.language?.trim() || undefined;
+
   try {
-    let article: ArticleMeta;
+    let parts: ArticleParts;
+
     if (url) {
       try {
         new URL(url);
@@ -36,7 +61,7 @@ export async function POST(req: NextRequest) {
         );
       }
       try {
-        article = await extractFromUrl(url);
+        parts = await extractFromUrl(url);
       } catch (e) {
         return NextResponse.json(
           { error: e instanceof Error ? e.message : "Failed to fetch URL." },
@@ -44,18 +69,25 @@ export async function POST(req: NextRequest) {
         );
       }
     } else {
-      article = fromRawText(text!, payload.title);
+      parts = fromRawText(text!, {
+        headline: payload.title,
+        language,
+      });
     }
 
-    if (article.wordCount < 20) {
+    if (parts.body.trim().length < 20) {
       return NextResponse.json(
-        { error: "Article is too short to assess (need at least 20 words)." },
+        { error: "Publication is too short to assess. Provide more text." },
         { status: 422 },
       );
     }
 
-    const assessment = await assessArticle(article);
-    return NextResponse.json(assessment);
+    const result = await scoreFromParts(parts, {
+      designation,
+      languageHint: language,
+    });
+
+    return NextResponse.json(result);
   } catch (e) {
     return NextResponse.json(
       {
