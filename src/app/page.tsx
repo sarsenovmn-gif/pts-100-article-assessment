@@ -1,35 +1,52 @@
 "use client";
 
 import { useState } from "react";
-import type { Assessment } from "@/lib/types";
+import type { AssessResponse, Designation } from "@/lib/types";
 import { ResultsPanel } from "@/components/results-panel";
 
 type Mode = "url" | "text";
+
+const DESIGNATIONS: { value: string; label: string }[] = [
+  { value: "auto", label: "Auto (let the model decide)" },
+  { value: "ARTICLE", label: "Article" },
+  { value: "POST", label: "Social-media post" },
+  { value: "DOCUMENTARY", label: "Documentary / research" },
+  { value: "SATIRE", label: "Satire" },
+];
 
 export default function Home() {
   const [mode, setMode] = useState<Mode>("url");
   const [url, setUrl] = useState("");
   const [text, setText] = useState("");
   const [title, setTitle] = useState("");
+  const [designation, setDesignation] = useState("auto");
+  const [language, setLanguage] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<Assessment | null>(null);
+  const [result, setResult] = useState<AssessResponse | null>(null);
 
   async function runAssessment() {
     setLoading(true);
     setError(null);
     setResult(null);
     try {
+      const body: Record<string, string> = {};
+      if (mode === "url") body.url = url.trim();
+      else {
+        body.text = text.trim();
+        if (title.trim()) body.title = title.trim();
+      }
+      if (designation !== "auto") body.designation = designation as Designation;
+      if (language.trim()) body.language = language.trim();
+
       const res = await fetch("/api/assess", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(
-          mode === "url" ? { url } : { text, title: title || undefined },
-        ),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Assessment failed.");
-      setResult(data as Assessment);
+      setResult(data as AssessResponse);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong.");
     } finally {
@@ -45,15 +62,17 @@ export default function Home() {
       <header className="mb-8">
         <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-medium text-indigo-300">
           <span className="h-1.5 w-1.5 rounded-full bg-indigo-400" />
-          Team 14 · PTS-100 pipeline
+          PTS-100 · Publication Trust Score
         </div>
         <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
-          Article Assessment
+          Publication Trust Score
         </h1>
         <p className="mt-2 max-w-xl text-sm leading-6 text-zinc-400">
-          Score an article against criteria <b>C1–C3</b> with evidence-backed
-          reasoning. Paste a link or the raw text — non-assessable criteria are
-          excluded and the result is rescaled to 100.
+          Assess a single publication against the PTS-100 framework — the IMPRESS
+          Standards Code plus the IHRA Working Definition of Antisemitism. The
+          model returns evidence-backed judgements; a deterministic scorer
+          verifies every quote, applies the stance gate and critical cap, and
+          routes findings for human review.
         </p>
       </header>
 
@@ -95,23 +114,52 @@ export default function Home() {
             <textarea
               value={text}
               onChange={(e) => setText(e.target.value)}
-              placeholder="Paste the full article text here…"
+              placeholder="Paste the full publication text here…"
               rows={8}
               className="w-full resize-y rounded-lg border border-white/10 bg-black/40 px-4 py-3 text-sm leading-6 outline-none placeholder:text-zinc-600 focus:border-indigo-400"
             />
           </div>
         )}
 
-        <div className="mt-4 flex items-center justify-between gap-3">
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <label className="block">
+            <span className="mb-1 block text-xs text-zinc-500">Designation</span>
+            <select
+              value={designation}
+              onChange={(e) => setDesignation(e.target.value)}
+              className="w-full rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm outline-none focus:border-indigo-400"
+            >
+              {DESIGNATIONS.map((d) => (
+                <option key={d.value} value={d.value} className="bg-zinc-900">
+                  {d.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs text-zinc-500">
+              Language hint (optional)
+            </span>
+            <input
+              type="text"
+              value={language}
+              onChange={(e) => setLanguage(e.target.value)}
+              placeholder="ISO 639-1, e.g. en, de, pl"
+              className="w-full rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm outline-none placeholder:text-zinc-600 focus:border-indigo-400"
+            />
+          </label>
+        </div>
+
+        <div className="mt-4 flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
           <p className="text-xs text-zinc-500">
             {mode === "url"
-              ? "Some sites block bots — switch to Paste text if extraction fails."
-              : "At least 20 words required."}
+              ? "Some sites block bots or require login — switch to Paste text if extraction fails."
+              : "For social-media content, paste the text and set the designation to Post."}
           </p>
           <button
             onClick={runAssessment}
             disabled={!canSubmit}
-            className="inline-flex items-center gap-2 rounded-lg bg-indigo-500 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-indigo-400 disabled:cursor-not-allowed disabled:opacity-40"
+            className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-indigo-500 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-indigo-400 disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto"
           >
             {loading ? (
               <>
@@ -131,23 +179,31 @@ export default function Home() {
       )}
 
       {loading && !result && (
-        <div className="mt-6 space-y-3">
+        <div className="mt-8 space-y-4">
+          <div className="h-28 animate-pulse rounded-2xl border border-white/5 bg-white/[0.03]" />
           {[0, 1, 2].map((i) => (
             <div
               key={i}
-              className="h-24 animate-pulse rounded-xl border border-white/5 bg-white/[0.03]"
+              className="h-24 animate-pulse rounded-2xl border border-white/5 bg-white/[0.03]"
             />
           ))}
         </div>
       )}
 
-      {result && <ResultsPanel assessment={result} />}
+      {result && (
+        <ResultsPanel
+          score={result.score}
+          assessment={result.assessment}
+          parts={result.parts}
+        />
+      )}
 
       {!result && !loading && !error && (
         <p className="mt-10 text-center text-xs text-zinc-600">
-          No key configured? The app returns a labelled mock so you can explore
-          the flow. Set <code className="text-zinc-400">ANTHROPIC_API_KEY</code>{" "}
-          for real scoring.
+          No key configured? The app returns a labelled all-PASS mock so you can
+          explore the flow. Set{" "}
+          <code className="text-zinc-400">ANTHROPIC_API_KEY</code> for real
+          scoring.
         </p>
       )}
     </main>

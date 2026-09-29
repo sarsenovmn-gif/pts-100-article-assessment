@@ -13,9 +13,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "PTS-100 · Article Assessment",
+  title: "PTS-100 · Publication Trust Score",
   description:
-    "Team 14 PTS-100 pipeline — assess an article against C1-C3 with evidence-backed scoring.",
+    "Assess a publication against the PTS-100 framework (IMPRESS Standards Code + IHRA definition of antisemitism) with evidence-backed, deterministic scoring.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
