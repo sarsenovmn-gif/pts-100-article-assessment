@@ -1,14 +1,21 @@
-# PTS-100 · Publication Trust Score
+# PTS · Publication Trust Score
 
-A Next.js web app that assesses a single publication against the **PTS-100
-Publication Trust Score** framework — the **IMPRESS Standards Code** combined
-with the **IHRA Working Definition of Antisemitism**.
+A Next.js web app that assesses a single publication on **two independent
+100-point scores**:
+
+- **PTS-A — Antisemitism Score**, based on the **IHRA Working Definition of
+  Antisemitism** (criteria AS1–AS6).
+- **PTS-J — Journalistic Standards Score**, based on the **IMPRESS Standards
+  Code** (criteria J1–J11 plus a conduct block, JD).
+
+The two scores are **never blended**. The UI shows both side by side, plus a
+convenience "weakest link" headline (`min(PTS-A, PTS-J)`).
 
 Give it an article by URL or pasted text. The app extracts the publication into
 labelled sections, sends it to a model with a forced, structured tool call, then
 runs a **deterministic scorer** that verifies every piece of evidence and applies
-the PTS-100 rules exactly. It is a faithful port of the reference Python pipeline
-(`team14-solutionV4.py`).
+the PTS rules exactly. It descends from the reference Python pipeline
+(`team14-solutionV4.py`), upgraded to the two-score model.
 
 ### Model providers
 
@@ -16,70 +23,95 @@ The app selects a provider in this order:
 
 1. **OpenRouter** — if `OPENROUTER_API_KEY` is set (OpenAI-compatible function
    calling; default model `anthropic/claude-haiku-4.5`).
-2. **Anthropic** — if `ANTHROPIC_API_KEY` is set (the issued team key, Messages
-   API + tool use; default model `claude-haiku-4-5`).
+2. **Anthropic** — if `ANTHROPIC_API_KEY` is set (Messages API + tool use;
+   default model `claude-haiku-4-5`).
 3. **Mock** — if neither is set, a clearly-labelled all-PASS assessment so the
    flow is still usable with no credentials.
 
-> Note: the original Team 14 spec forbids third-party routers ("No OpenRouter,
-> no third-party model"). OpenRouter support is opt-in for convenience/testing;
-> use the Anthropic path for spec compliance.
+> Note: the original Team 14 spec forbids third-party routers. OpenRouter support
+> is opt-in for convenience/testing; use the Anthropic path for spec compliance.
 
 ## The framework
 
-The publication is scored out of 100 across four blocks (14 criteria + conduct):
+### PTS-A — Antisemitism (IHRA), 100 points
 
-| Block | Name | Points | Criteria |
-| ----- | ---- | ------ | -------- |
-| **A** | Antisemitism (IMPRESS Clause 4 + IHRA) | 45 | A1 (15), A2 (10, critical), A3 (10, contested), A4 (5), A5 (5) |
-| **B** | Accuracy (IMPRESS Clause 1) | 30 | B1 (7), B2 (10, critical), B3 (5), B4 (5), B5 (3) |
-| **C** | Attribution & transparency | 15 | C1 (5), C2 (3), C3 (4), C4 (3) |
-| **D** | Conduct | 10 | Clauses 3, 5, 6, 7, 8, 9 (start at 10, −5 per breach) |
+| Criterion | Points | Scope |
+| --------- | ------ | ----- |
+| **AS1** | 20 (critical) | Violence & incitement (IHRA 1) |
+| **AS2** | 20 | Collective tropes & imagery (IHRA 2) |
+| **AS3** | 15 | Collective responsibility & dual loyalty (IHRA 3, 6, 11) |
+| **AS4** | 20 (critical) | Holocaust denial & distortion (IHRA 4, 5) |
+| **AS5** | 15 (contested) | Israel-related (IHRA 7, 8, 9, 10) |
+| **AS6** | 10 | Amplification & gratuitous identity (EJN; IMPRESS 4.2) |
+
+### PTS-J — Journalistic standards (IMPRESS), 100 points
+
+80 criteria points (J1–J11) + a 20-point conduct block (JD). Clause 4
+(Discrimination) is **not** part of PTS-J — it lives entirely in PTS-A.
+
+| Criterion | Points | Scope |
+| --------- | ------ | ----- |
+| **J1** | 20 | Accuracy — no inaccuracy/distortion (1.1/1.4) |
+| **J2** | 10 | Fact vs opinion (1.3) |
+| **J3** | 8 | Corrections with due prominence (1.2) |
+| **J4** | 7 | Headline/standfirst match body (1.5) |
+| **J5** | 7 | Attribution, no plagiarism (2.1) |
+| **J6** | 3 | Failure to credit corrected (2.2) |
+| **J7** | 8 | Conflicts of interest & ownership (10.2) |
+| **J8** | 6 | Sponsored content labelled (10.1) |
+| **J9** | 3 | Financial information (10.3) |
+| **J10** | 3 | Failure to disclose corrected (10.4) |
+| **J11** | 5 | Public-interest justification |
+| **JD** | 20 | Conduct clauses 3, 5, 6, 7, 8, 9 (start 20, −10 per breach) |
 
 ### How the deterministic scorer works
 
-The model never computes the final number — software does. `calculate_pts100`
-applies these rules (see `src/lib/scorer.ts`):
+The model never computes the numbers — software does. `calculate_scores`
+(see `src/lib/scorer.ts`) produces the two `PtsSubScore` objects independently:
 
-- **NOT_ASSESSABLE** criteria are excluded from the possible total, and the score
-  is rescaled to 100 (so a clean article with unassessable criteria can still
-  reach 100).
-- **Evidence verification** — every `FAIL` must carry an exact quotation. Each
-  quote is checked against the article text (after light normalisation). A
-  failure whose quote is **not** in the text is *rejected* (no deduction, points
-  kept) and queued for human review.
-- **Stance gate** — the stance-gated criteria (A1, A2, A3, B2) cannot fail unless
-  the offending passage is `OWN_VOICE` or `UNCRITICAL_AMPLIFICATION`. Failures
-  attributed to `REPORTED_CONTEXTUALISED` or `COUNTERED` material are rejected
-  and queued.
-- **Critical cap** — an A2 or B2 failure in the publication's **own voice** caps
-  the final score at **39**. It is never applied to quoted material.
-- **Human review routing** — every A2, A3 and B2 failure, any `human_review_required`
-  flag, the contested zone (A3), and any accepted failure with confidence below
-  `0.5` are routed to a de-duplicated review queue.
-- **Block D conduct** — starts at 10; each verified engaged-and-breached clause
-  deducts 5 (floor 0). An unverifiable breach is rejected and queued.
+- **NOT_ASSESSABLE** criteria are excluded from that score's possible total, and
+  the score is rescaled to 100 (so a clean article with unassessable criteria can
+  still reach 100 while its coverage is below 100).
+- **Evidence verification** — every `FAIL` must carry a quotation. Each quote is
+  checked against the article text with tolerant matching (whitespace/curly-quote
+  normalisation, ellipsis splitting, section-label stripping, and approximate
+  matching ≥ 0.85). A failure whose quote is **not** in the text is *rejected*
+  (no deduction, points kept) and queued for human review.
+- **Stance gate (PTS-A only)** — AS1–AS5 cannot fail unless the offending passage
+  is `OWN_VOICE` or `UNCRITICAL_AMPLIFICATION`. Failures attributed to
+  `REPORTED_CONTEXTUALISED` or `COUNTERED` material are rejected and queued. A
+  `FAIL` with `failure_stance: NONE` inherits `overall_stance`.
+- **Critical caps** — an **AS1** or **AS4** failure in the publication's own
+  voice caps **PTS-A** at **39**. **Fabrication** (J1, or a fabricated source
+  under conduct clause 8) caps **PTS-J** at **39**.
+- **Human review routing** — AS1, AS4 and AS5 failures, any `human_review_required`
+  flag, the contested zone (AS5), and any accepted failure with confidence below
+  `0.5` are routed to a de-duplicated review queue (per score).
+- **Conduct block (JD, PTS-J)** — starts at 20; each verified engaged-and-breached
+  clause deducts 10 (floor 0). An unverifiable breach is rejected and queued.
 - **Legal flag** — a separate routing flag (`INCITEMENT` / `HOLOCAUST_DENIAL`),
-  never a legal finding, and never part of the score.
+  never a legal finding, and never part of either score.
 
 ### Designations
 
-- **ARTICLE** — journalistic/editorial publication (all 14 criteria + Block D).
-- **POST** — social-media content; scored on A1–A5, B1–B3 and Block D only,
-  rescaled to 100.
+- **ARTICLE** — journalistic/editorial publication (all AS + all J + JD).
+- **POST** — social-media content; PTS-A in full, PTS-J on J1, J2, J5 and JD only.
 - **DOCUMENTARY** — research/monitoring material; scored like an article.
-- **SATIRE** — labelled, **not** scored (`final_score` is `null`).
+- **SATIRE** — labelled, **not** scored (both `PtsSubScore.score` are `null`).
 
 ### Tier bands
 
-`≥100` Compliant (A) · `≥75` Generally compliant (B) · `≥60` Compliant with
-exceptions (C) · `≥40` Breach (D) · else Serious breach (F).
+**PTS-A:** `≥100` No indicators · `≥75` Minor concerns · `≥60` Amplification or
+contested · `≥40` Antisemitic content present · else Severe.
+
+**PTS-J:** `≥100` Compliant · `≥75` Generally compliant · `≥60` Compliant with
+exceptions · `≥40` Breach · else Serious breach.
 
 ## Getting started
 
 ```bash
 npm install
-cp .env.example .env.local   # add your ANTHROPIC_API_KEY (optional)
+cp .env.example .env.local   # add a model key (optional)
 npm run dev
 ```
 
@@ -91,17 +123,29 @@ credentials.
 
 ## Self-test
 
-The deterministic scorer ships with the reference 7-scenario self-test:
+The deterministic scorer ships with an 8-scenario self-test (`a`–`h`):
 
 ```bash
 npm run selftest
 ```
 
-It verifies: a clean article reaching 100 (88/100 coverage), an unverifiable A1
-failure being rejected, a verified own-voice A2 failure capping at 39, the A3
-stance gate, POST-profile rescaling, Block D verification, SATIRE returning no
-score, the stance fallback (a FAIL with `failure_stance: NONE` inheriting the
-overall stance), and approximate quote matching.
+It verifies: (a) a clean article reaching PTS-A 100 / PTS-J 100 with PTS-J
+coverage below 100; (b) own-voice AS2/AS3/AS4 capping PTS-A at 39 with AS4 in
+review while PTS-J is untouched; (c) the `failure_stance: NONE` fallback deducting
+rather than rejecting; (d) the AS5 stance gate rejecting a `COUNTERED` failure;
+(e) the POST profile limiting PTS-J to J1/J2/J5/JD; (f) J1 fabrication capping
+PTS-J at 39 while PTS-A is untouched; (g) conduct verification (unverifiable
+breach rejected, verified breach −10 from JD); and (h) SATIRE leaving both scores
+null.
+
+### Demo
+
+An offline, deterministic demo runs a **synthetic** antisemitic own-voice fixture
+through the scorer (no network, no key, no real data):
+
+```bash
+npm run demo:bad          # == npx tsx scripts/demo.mjs --demo-bad --debug
+```
 
 ### Endpoint integration test
 
@@ -113,9 +157,10 @@ npm run test:endpoint
 BASE_URL=https://pts-100-article-assessment.vercel.app npm run test:endpoint
 ```
 
-It posts a synthetic antisemitic own-voice fixture (asserts `final_score <= 39`,
-`cap_applied`, findings include A1 & B2, human review contains A2 & B2) and the
-clean Chicago-park sample (asserts score 100 with coverage < 100).
+It posts a synthetic antisemitic own-voice fixture (asserts `pts_a.score <= 39`,
+`pts_a.cap_applied`, PTS-A findings include a conspiracy/incitement criterion and
+AS4, review contains AS4) and the clean Chicago-park sample (asserts PTS-A 100,
+PTS-J 100 with PTS-J coverage below 100).
 
 ### Debugging a failed assessment
 
@@ -165,14 +210,16 @@ src/
     page.tsx              # client UI (URL / paste tabs, designation, language)
     api/assess/route.ts   # POST: extract + assess + score
   components/
-    results-panel.tsx     # score, block bars, findings, review queue, provenance
+    results-panel.tsx     # two scores side by side, findings, review, provenance
   lib/
-    rubric.ts             # prompt, tool schema, points, profiles, tier()
-    scorer.ts             # deterministic calculate_pts100 + evidence verification
+    rubric.ts             # prompt, tool schema, AS/J points, profiles, tierA/tierJ
+    scorer.ts             # deterministic calculate_scores + evidence verification
     extract.ts            # URL / raw-text extraction, buildPublicationText
-    assess.ts             # Anthropic call, mock, scorePublication/scoreFromParts
-    scorer.selftest.ts    # 7-scenario self-test
-    types.ts
+    assess.ts             # model call, mock, scorePublication/scoreFromParts
+    scorer.selftest.ts    # 8-scenario (a-h) self-test
+    types.ts              # PtsSubScore, Scores, Assessment, ...
 scripts/
   selftest.mjs            # `npm run selftest` runner
+  demo.mjs                # `npm run demo:bad` offline demo (--demo-bad --debug)
+  endpoint.test.mjs       # `npm run test:endpoint` live integration test
 ```
