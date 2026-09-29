@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { extractFromUrl, fromRawText } from "@/lib/extract";
 import { scoreFromParts } from "@/lib/assess";
+import { MIN_BODY_CHARS } from "@/lib/rubric";
 import type { ArticleParts, Designation } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -75,9 +76,15 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    if (parts.body.trim().length < 20) {
+    if (parts.body.trim().length < MIN_BODY_CHARS) {
       return NextResponse.json(
-        { error: "Publication is too short to assess. Provide more text." },
+        {
+          error:
+            `Publication text is too short to assess (under ${MIN_BODY_CHARS} characters). ` +
+            (url
+              ? "This usually means a paywall, cookie/consent wall or a social-media page was fetched instead of the article. Paste the full text directly."
+              : "Paste the full publication text."),
+        },
         { status: 422 },
       );
     }

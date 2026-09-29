@@ -52,8 +52,11 @@ function buildUserPrompt(articleText: string, opts: AssessOptions): string {
   return `Assess the following publication according to the complete PTS-100
 framework supplied in the system instructions.
 
-Return one assessment for every criterion A1-C4, an entry for every
-Block D clause you considered, and the legal flag.
+First list, in candidate_passages, every passage that mentions Jews, Judaism,
+Israel, Zionism, the Holocaust or antisemitism (verbatim; empty array if none).
+Then return one assessment for every criterion A1-C4, an entry for every
+Block D clause you considered, and the legal flag. A clear antisemitic trope in
+the publication's own voice is a FAIL, not a PASS.
 Do not calculate the final numerical score yourself.
 
 ${hintBlock}<ARTICLE>
@@ -238,6 +241,7 @@ export function mockAssessment(input?: string | ArticleParts): Assessment {
     language: "en",
     designation: "ARTICLE",
     overall_stance: "OWN_VOICE",
+    candidate_passages: [],
     criteria,
     conduct: [],
     legal_flag: {
