@@ -10,8 +10,8 @@
 const BASE_URL = process.env.BASE_URL || "http://127.0.0.1:43127";
 
 // Synthetic antisemitic own-voice fixture (for testing only; never for display).
-// Mirrors the reference BAD_FIXTURE: conspiracy trope (A1), justifying harm (A2)
-// and Holocaust denial (B2) in the publication's own voice.
+// Conspiracy trope (AS2), justifying/celebrating harm (AS1) and Holocaust denial
+// (AS4) in the publication's own voice.
 const BAD_FIXTURE = `EDITORIAL — The truth they will not print.
 It is time we stated plainly what everyone privately knows: the Jews secretly
 control the banks, the newspapers, the courts and every government ministry, and
@@ -61,17 +61,20 @@ async function main() {
   console.log("BAD_FIXTURE (antisemitic own voice):");
   const bad = await assess({ text: BAD_FIXTURE, designation: "ARTICLE" });
   const bs = bad.score;
-  const findingIds = (bs.findings || []).map((f) => f.criterion);
-  const reviewIds = (bs.human_review || []).map((h) => h.criterion);
+  const findingIds = (bs.pts_a?.findings || []).map((f) => f.criterion);
+  const reviewIds = (bs.pts_a?.human_review || []).map((h) => h.criterion);
   if (bs.mocked) {
     console.log("  SKIP — mock provider (no model key); cannot assert real scoring.");
   } else {
-    check(bs.final_score <= 39, `final_score <= 39 (got ${bs.final_score})`, bs.final_score);
-    check(bs.cap_applied === true, "cap_applied === true", bs.cap_applied);
-    check(findingIds.includes("A1"), "findings include A1", findingIds);
-    check(findingIds.includes("B2"), "findings include B2", findingIds);
-    check(reviewIds.includes("A2"), "human_review contains A2", reviewIds);
-    check(reviewIds.includes("B2"), "human_review contains B2", reviewIds);
+    check(bs.pts_a.score <= 39, `PTS-A <= 39 (got ${bs.pts_a.score})`, bs.pts_a.score);
+    check(bs.pts_a.cap_applied === true, "PTS-A cap_applied === true", bs.pts_a.cap_applied);
+    check(
+      findingIds.includes("AS1") || findingIds.includes("AS2"),
+      "PTS-A findings include a conspiracy/incitement criterion (AS1/AS2)",
+      findingIds,
+    );
+    check(findingIds.includes("AS4"), "PTS-A findings include AS4 (Holocaust denial)", findingIds);
+    check(reviewIds.includes("AS4"), "PTS-A human_review contains AS4", reviewIds);
   }
 
   console.log("\nSAMPLE_ARTICLE (clean Chicago park):");
@@ -80,13 +83,13 @@ async function main() {
   if (cs.mocked) {
     console.log("  SKIP — mock provider (no model key).");
   } else {
-    const possible =
-      (cs.points?.possible?.A ?? 0) +
-      (cs.points?.possible?.B ?? 0) +
-      (cs.points?.possible?.C ?? 0) +
-      (cs.points?.possible?.D ?? 0);
-    check(cs.final_score === 100, `final_score === 100 (got ${cs.final_score})`, cs.final_score);
-    check(possible < 100, `coverage < 100 points assessable (got ${possible})`, cs.points);
+    check(cs.pts_a.score === 100, `PTS-A === 100 (got ${cs.pts_a.score})`, cs.pts_a.score);
+    check(cs.pts_j.score === 100, `PTS-J === 100 (got ${cs.pts_j.score})`, cs.pts_j.score);
+    check(
+      cs.pts_j.possible < 100,
+      `PTS-J coverage < 100 points assessable (got ${cs.pts_j.possible})`,
+      cs.pts_j.coverage,
+    );
   }
 
   console.log(`\n${failures === 0 ? "All endpoint assertions passed." : `${failures} assertion(s) failed.`}`);
