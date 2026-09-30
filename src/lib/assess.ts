@@ -1,29 +1,31 @@
-import Anthropic from "@anthropic-ai/sdk";
 import {
   ALLOW_MOCK,
-  ANTHROPIC_VERSION,
   ASSESSMENT_TOOL,
-  MAX_RETRIES,
-  MAX_TOKENS,
   MODEL,
   MODEL_CRITERION_IDS,
-  OPENROUTER_BASE_URL,
-  OPENROUTER_MODEL,
   PROMPT_VERSION,
   PTS_SYSTEM_PROMPT,
-  TEMPERATURE,
+  TWO_PASS,
 } from "./rubric";
 import { _provenance, _sanitise_article, calculate_scores } from "./scorer";
+import { callTool, getProvider, ModelError } from "./provider";
+import { assessTwoPass } from "./twopass";
 import { formatHitsForPrompt, prescan } from "./lexicon";
+import { detectInjection } from "./normalise";
 import { buildPublicationText } from "./extract";
 import type {
   ArticleParts,
   Assessment,
+  AuditData,
   CriterionAssessment,
   Designation,
   LexiconHit,
+  Provenance,
   Scores,
 } from "./types";
+
+export { ModelError, getProvider };
+export type { Provider } from "./provider";
 
 export type AssessOptions = {
   designation?: Designation | string | null;
@@ -31,17 +33,6 @@ export type AssessOptions = {
   runId?: string | null;
   lexiconHits?: LexiconHit[];
 };
-
-export type Provider = "anthropic" | "openrouter" | "mock";
-
-export class ModelError extends Error {
-  stop_reason?: string;
-  constructor(message: string, stopReason?: string) {
-    super(message);
-    this.name = "ModelError";
-    this.stop_reason = stopReason;
-  }
-}
 
 function validateAssessment(assessment: unknown, stopReason?: string): Assessment {
   const a = assessment as Partial<Assessment> | null | undefined;
@@ -60,12 +51,6 @@ function validateAssessment(assessment: unknown, stopReason?: string): Assessmen
   return a as Assessment;
 }
 
-export function getProvider(): Provider {
-  if ((process.env.OPENROUTER_API_KEY || "").trim()) return "openrouter";
-  if ((process.env.ANTHROPIC_API_KEY || "").trim()) return "anthropic";
-  return "mock";
-}
-
 function sectionsFromParts(parts: ArticleParts): { section: string; text: string }[] {
   const s: { section: string; text: string }[] = [];
   if (parts.headline) s.push({ section: "HEADLINE", text: parts.headline });
@@ -75,14 +60,13 @@ function sectionsFromParts(parts: ArticleParts): { section: string; text: string
   return s;
 }
 
-function buildUserPrompt(
-  articleText: string,
-  opts: AssessOptions,
-  hitsText: string,
-): string {
+// ============================================================
+// Single-pass path (fallback when PTS_TWO_PASS=0)
+// ============================================================
+
+function buildUserPrompt(articleText: string, opts: AssessOptions, hitsText: string): string {
   const { designation, languageHint } = opts;
   const body = _sanitise_article(articleText);
-
   const hints: string[] = [];
   if (designation) hints.push(`Designation stated by the caller: ${designation}. Use it.`);
   if (languageHint) hints.push(`Language hint from the caller: ${languageHint}.`);
@@ -114,153 +98,28 @@ ${body}
 </ARTICLE>`;
 }
 
-export async function assessArticle(
-  articleText: string,
-  opts: AssessOptions = {},
-): Promise<Assessment> {
-  const provider = getProvider();
+export async function assessArticle(articleText: string, opts: AssessOptions = {}): Promise<Assessment> {
   const hitsText = formatHitsForPrompt(opts.lexiconHits ?? []);
-  if (provider === "openrouter") return assessViaOpenRouter(articleText, opts, hitsText);
-  return assessViaAnthropic(articleText, opts, hitsText);
-}
-
-async function assessViaAnthropic(
-  articleText: string,
-  opts: AssessOptions,
-  hitsText: string,
-): Promise<Assessment> {
-  const userPrompt = buildUserPrompt(articleText, opts, hitsText);
-  const client = new Anthropic({
-    apiKey: (process.env.ANTHROPIC_API_KEY || "").trim(),
-    baseURL: process.env.ANTHROPIC_BASE_URL || undefined,
-    maxRetries: MAX_RETRIES,
-    defaultHeaders: { "anthropic-version": ANTHROPIC_VERSION },
-  });
-
-  const response = await client.messages.create({
-    model: MODEL,
-    max_tokens: MAX_TOKENS,
-    temperature: TEMPERATURE,
+  const res = await callTool({
     system: PTS_SYSTEM_PROMPT,
-    messages: [{ role: "user", content: userPrompt }],
-    tools: [ASSESSMENT_TOOL as unknown as Anthropic.Tool],
-    tool_choice: { type: "tool", name: ASSESSMENT_TOOL.name },
+    user: buildUserPrompt(articleText, opts, hitsText),
+    tool: ASSESSMENT_TOOL,
+    model: MODEL,
   });
-
-  console.log(
-    `[pts] anthropic model=${response.model} stop_reason=${response.stop_reason} usage=${JSON.stringify(response.usage ?? {})}`,
-  );
-
-  if (response.stop_reason === "max_tokens") {
-    throw new ModelError("Model output truncated (max_tokens). Increase max_tokens and retry.", "max_tokens");
-  }
-  for (const block of response.content) {
-    if (block.type === "tool_use" && block.name === ASSESSMENT_TOOL.name) {
-      const assessment = validateAssessment(block.input, response.stop_reason ?? undefined);
-      assessment._provenance = {
-        model: response.model || MODEL,
-        prompt_version: PROMPT_VERSION,
-        stop_reason: response.stop_reason ?? undefined,
-        usage: response.usage ?? {},
-      };
-      return assessment;
-    }
-  }
-  throw new ModelError("Model returned no structured assessment.", response.stop_reason ?? undefined);
-}
-
-type OpenRouterResponse = {
-  model?: string;
-  usage?: Record<string, unknown>;
-  choices?: {
-    finish_reason?: string;
-    message?: { tool_calls?: { function?: { name?: string; arguments?: string } }[] };
-  }[];
-};
-
-async function assessViaOpenRouter(
-  articleText: string,
-  opts: AssessOptions,
-  hitsText: string,
-): Promise<Assessment> {
-  const apiKey = (process.env.OPENROUTER_API_KEY || "").trim();
-  const userPrompt = buildUserPrompt(articleText, opts, hitsText);
-
-  const payload = {
-    model: OPENROUTER_MODEL,
-    temperature: TEMPERATURE,
-    max_tokens: MAX_TOKENS,
-    messages: [
-      { role: "system", content: PTS_SYSTEM_PROMPT },
-      { role: "user", content: userPrompt },
-    ],
-    tools: [
-      {
-        type: "function",
-        function: {
-          name: ASSESSMENT_TOOL.name,
-          description: ASSESSMENT_TOOL.description,
-          parameters: ASSESSMENT_TOOL.input_schema,
-        },
-      },
-    ],
-    tool_choice: { type: "function", function: { name: ASSESSMENT_TOOL.name } },
+  const assessment = validateAssessment(res.input, res.meta.stop_reason);
+  assessment._provenance = {
+    model: res.meta.model || MODEL,
+    prompt_version: PROMPT_VERSION,
+    stop_reason: res.meta.stop_reason,
+    usage: res.meta.usage ?? {},
+    architecture: "single-pass",
   };
-
-  let lastError = "";
-  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-    const res = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-        "HTTP-Referer": "https://pts-100.local",
-        "X-Title": "PTS Publication Trust Score",
-      },
-      body: JSON.stringify(payload),
-    });
-
-    if ([429, 500, 502, 503, 529].includes(res.status)) {
-      lastError = `HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`;
-      await new Promise((r) => setTimeout(r, Math.min(2 ** attempt * 1000, 20000)));
-      continue;
-    }
-    if (!res.ok) {
-      throw new Error(`OpenRouter error HTTP ${res.status}: ${(await res.text()).slice(0, 500)}`);
-    }
-
-    const data = (await res.json()) as OpenRouterResponse;
-    const finishReason = data.choices?.[0]?.finish_reason;
-    console.log(
-      `[pts] openrouter model=${data.model} finish_reason=${finishReason} usage=${JSON.stringify(data.usage ?? {})}`,
-    );
-    if (finishReason === "length") {
-      throw new ModelError("Model output truncated (length). Increase max_tokens and retry.", "length");
-    }
-    const call = data.choices?.[0]?.message?.tool_calls?.[0]?.function;
-    if (!call?.arguments) {
-      throw new ModelError("Model returned no structured assessment (no tool call).", finishReason);
-    }
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(call.arguments);
-    } catch {
-      throw new ModelError(
-        "Model tool arguments were not valid JSON" + (finishReason === "length" ? " (output truncated)." : "."),
-        finishReason,
-      );
-    }
-    const assessment = validateAssessment(parsed, finishReason);
-    assessment._provenance = {
-      model: data.model || OPENROUTER_MODEL,
-      prompt_version: PROMPT_VERSION,
-      stop_reason: finishReason,
-      usage: data.usage ?? {},
-    };
-    return assessment;
-  }
-  throw new Error(`OpenRouter unavailable after ${MAX_RETRIES} attempts. Last error: ${lastError}`);
+  return assessment;
 }
+
+// ============================================================
+// Mock (dev/test only)
+// ============================================================
 
 const MOCK_NOT_APPLICABLE = new Set(["J3", "J7", "J8", "J9", "J10", "J11"]);
 
@@ -297,15 +156,12 @@ export function mockAssessment(input?: string | ArticleParts): Assessment {
     claims: [],
     conduct: [],
     legal_flag: { possible_illegal: false, category: "NONE", evidence_quote: "", rationale: "" },
-    _provenance: { model: "mock", prompt_version: PROMPT_VERSION },
+    _provenance: { model: "mock", prompt_version: PROMPT_VERSION, architecture: "single-pass" },
   };
 }
 
 /** Score returned when no real provider is available and mock is not allowed. */
-function unavailableScores(
-  articleText: string,
-  designation?: Designation | string | null,
-): Scores {
+function unavailableScores(articleText: string, designation?: Designation | string | null): Scores {
   const desig = ((designation || "ARTICLE").toString().toUpperCase() as Designation) || "ARTICLE";
   const empty = {
     score: null, displayed_score: null, tier: "Analysis unavailable",
@@ -328,27 +184,79 @@ function unavailableScores(
   };
 }
 
+// ============================================================
+// Orchestration
+// ============================================================
+
+type AssessArtifacts = {
+  assessment: Assessment;
+  audit?: AuditData;
+  consistency?: number | null;
+  consistencyNote?: string;
+  provenanceExtra?: Partial<Provenance>;
+};
+
+async function produceAssessment(
+  parts: ArticleParts,
+  text: string,
+  opts: AssessOptions,
+  hits: LexiconHit[],
+  mocked: boolean,
+): Promise<AssessArtifacts> {
+  if (mocked) return { assessment: mockAssessment(parts) };
+  if (TWO_PASS) {
+    const r = await assessTwoPass(
+      parts,
+      text,
+      { designation: opts.designation ?? parts.designationHint ?? undefined, languageHint: opts.languageHint },
+      hits,
+    );
+    return {
+      assessment: r.assessment,
+      audit: r.audit,
+      consistency: r.consistency,
+      consistencyNote: r.consistencyNote,
+      provenanceExtra: r.provenanceExtra,
+    };
+  }
+  const assessment = await assessArticle(text, {
+    ...opts,
+    designation: opts.designation ?? parts.designationHint ?? undefined,
+    lexiconHits: hits,
+  });
+  return { assessment };
+}
+
 export async function scorePublication(
   articleText: string,
   opts: AssessOptions = {},
 ): Promise<{ assessment: Assessment | null; score: Scores; mocked: boolean; unavailable: boolean }> {
   const provider = getProvider();
-
   if (provider === "mock" && !ALLOW_MOCK) {
     return { assessment: null, score: unavailableScores(articleText, opts.designation), mocked: false, unavailable: true };
   }
 
-  const sections = [{ section: "BODY", text: articleText }];
-  const hits = prescan(sections, opts.languageHint);
+  const parts: ArticleParts = {
+    url: null, source: null, headline: "", standfirst: null, byline: null, published: null,
+    body: articleText, extractor: "raw", bodyChars: articleText.length, warning: null,
+  };
+  const injection = detectInjection(articleText);
+  const hits = prescan([{ section: "BODY", text: articleText }], opts.languageHint);
   const mocked = provider === "mock";
-  const assessment = mocked ? mockAssessment(articleText) : await assessArticle(articleText, { ...opts, lexiconHits: hits });
-  const score = calculate_scores(assessment, articleText, {
+  const art = await produceAssessment(parts, articleText, opts, hits, mocked);
+
+  const score = calculate_scores(art.assessment, articleText, {
     designation: opts.designation ?? undefined,
     runId: opts.runId ?? undefined,
     lexiconHits: hits,
+    injection,
+    consistency: art.consistency,
+    consistencyNote: art.consistencyNote,
+    audit: art.audit,
+    provenanceExtra: art.provenanceExtra,
   });
   if (mocked) score.mocked = true;
-  return { assessment, score, mocked, unavailable: false };
+  return { assessment: art.assessment, score, mocked, unavailable: false };
 }
 
 export async function scoreFromParts(
@@ -364,14 +272,21 @@ export async function scoreFromParts(
     return { parts: { ...parts, mocked: false }, assessment: null, score };
   }
 
+  const injection = detectInjection(text);
   const sections = sectionsFromParts(parts);
   const hits = prescan(sections, opts.languageHint);
   const mocked = provider === "mock";
-  const assessment = mocked ? mockAssessment(parts) : await assessArticle(text, { ...opts, designation, lexiconHits: hits });
-  const score = calculate_scores(assessment, text, {
+  const art = await produceAssessment(parts, text, opts, hits, mocked);
+
+  const score = calculate_scores(art.assessment, text, {
     designation,
     runId: opts.runId ?? undefined,
     lexiconHits: hits,
+    injection,
+    consistency: art.consistency,
+    consistencyNote: art.consistencyNote,
+    audit: art.audit,
+    provenanceExtra: art.provenanceExtra,
   });
   if (mocked) score.mocked = true;
 
@@ -385,5 +300,5 @@ export async function scoreFromParts(
     warning: parts.warning,
     body_chars: parts.bodyChars,
   };
-  return { parts: { ...parts, mocked }, assessment, score };
+  return { parts: { ...parts, mocked }, assessment: art.assessment, score };
 }

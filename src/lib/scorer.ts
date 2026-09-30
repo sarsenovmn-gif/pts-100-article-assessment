@@ -33,12 +33,14 @@ import { designationListVersions, resolveSource } from "./designations";
 import { lexiconVersion } from "./lexicon";
 import type {
   Assessment,
+  AuditData,
   Claim,
   ConfidenceBand,
   ConductBreach,
   CriterionAssessment,
   Designation,
   Finding,
+  InjectionInfo,
   LexiconHit,
   OrgResolution,
   Provenance,
@@ -197,6 +199,8 @@ type EvalConfig = {
   points: PointDef[];
   applicable: Set<string>;
   stanceGated: Set<string>;
+  /** Criteria where an UNCRITICAL_AMPLIFICATION failure deducts only half. */
+  ampHalf: Set<string>;
   reviewReason: (cid: string) => string | null;
   capOf: (cid: string, item: CriterionAssessment, stance: string, sev: Severity) => number | null;
 };
@@ -312,6 +316,7 @@ function evaluateScore(
         reason: `stance rule: ${stance} cannot fail ${cid}`,
         quote,
         rationale: item.rationale ?? "",
+        rejected_by: "stance_gate",
       });
       r.earned += points;
       r.assessed += points;
@@ -320,13 +325,20 @@ function evaluateScore(
     }
 
     const retention = SEVERITY_RETENTION[sev] ?? 0;
-    const earnedPts = points * retention;
+    let earnedPts = points * retention;
+    let pointsLost = points - earnedPts;
+    // Amplification half-deduction (Part A3): AS1-AS5 lose only half when the
+    // failing passage is UNCRITICAL_AMPLIFICATION rather than the outlet's own voice.
+    if (cfg.ampHalf.has(cid) && stance === "UNCRITICAL_AMPLIFICATION") {
+      pointsLost = pointsLost / 2;
+      earnedPts = points - pointsLost;
+    }
     r.earned += earnedPts;
     r.assessed += points;
     r.findings.push({
       criterion: cid,
       severity: sev,
-      points_lost: points - earnedPts,
+      points_lost: pointsLost,
       points_possible: points,
       stance,
       ihra_examples: item.ihra_examples ?? [],
@@ -335,6 +347,7 @@ function evaluateScore(
       section: item.section?.toString(),
       rationale: item.rationale ?? "",
       confidence: item.confidence ?? null,
+      irony_possible: item.irony_possible,
     });
     if (typeof item.confidence === "number") r.materialConf.push(item.confidence);
 
@@ -382,6 +395,7 @@ function evaluateConduct(assessment: Assessment, articleText: string) {
         reason: "conduct clause requires a specific identified person; none given",
         quote: clause.evidence_quote || "",
         rationale: clause.rationale ?? "",
+        rejected_by: "conduct_guard",
       });
       continue;
     }
@@ -393,6 +407,7 @@ function evaluateConduct(assessment: Assessment, articleText: string) {
         reason: "evidence quote not found in text",
         quote,
         rationale: clause.rationale ?? "",
+        rejected_by: "quote_check",
       });
       reviewQueue.push({ criterion: `D${clause.clause}`, reason: "conduct breach alleged without verifiable evidence" });
       continue;
@@ -642,6 +657,11 @@ export type ScoreOptions = {
   designation?: Designation | string | null;
   runId?: string | null;
   lexiconHits?: LexiconHit[];
+  injection?: InjectionInfo;
+  consistency?: number | null;
+  consistencyNote?: string;
+  audit?: AuditData;
+  provenanceExtra?: Partial<Provenance>;
 };
 
 export function calculate_scores(
@@ -664,9 +684,20 @@ export function calculate_scores(
     possible_illegal: false, category: "NONE" as const, evidence_quote: "", rationale: "",
   };
   const provenance = _provenance(assessment, articleText, desig, runId);
+  if (options.provenanceExtra) Object.assign(provenance, options.provenanceExtra);
   const claims = assessment.claims ?? [];
   const orgResolutions =
     desig === "SATIRE" ? [] : evaluateS5(claims, articleText).resolutions;
+
+  // Observability (Part E): the model must not silently ignore the pre-scan.
+  const candidateCount = assessment.candidate_passages?.length ?? 0;
+  const materialHits = lexiconHits.filter((h) => h.strength !== "not_indicator").length;
+  const designatedSources = orgResolutions.some((r) => r.resolved && r.designated);
+  if (candidateCount === 0 && (materialHits > 0 || designatedSources)) {
+    warnings.push("model saw no candidate passages although the pre-scan did (lexicon hits or designated sources present)");
+  }
+
+  const injection = options.injection;
 
   if (desig === "SATIRE") {
     provenance.coverage_pct = 0;
@@ -687,6 +718,10 @@ export function calculate_scores(
       org_resolutions: [],
       warnings,
       note: "Satire is labelled, not scored.",
+      consistency: options.consistency ?? null,
+      consistency_note: options.consistencyNote,
+      injection,
+      audit: options.audit,
       provenance,
     };
   }
@@ -707,6 +742,7 @@ export function calculate_scores(
       points: AS_POINTS,
       applicable: AS_PROFILES[desig],
       stanceGated: AS_STANCE_GATED,
+      ampHalf: AS_STANCE_GATED,
       reviewReason: (cid) =>
         AS_CRITICAL.has(cid)
           ? "critical criterion failed — human review"
@@ -747,6 +783,7 @@ export function calculate_scores(
       points: [...J_CORE_POINTS, ...S_POINTS.filter((p) => p.id !== "S5")],
       applicable: new Set([...J_PROFILES[desig], ...[...S_PROFILES[desig]].filter((id) => id !== "S5")]),
       stanceGated: new Set(),
+      ampHalf: new Set(),
       reviewReason: () => null,
       capOf: (cid, item, _stance, sev) => {
         if (cid === "J1" && item.fabrication && (sev === "MAJOR" || sev === "SEVERE")) return CAP_FABRICATION_J;
@@ -821,6 +858,15 @@ export function calculate_scores(
     tier: tierJ,
   });
 
+  // Prompt-injection routing (Part D): scores are still computed, but the whole
+  // result goes to human review and a banner is shown.
+  if (injection?.suspected) {
+    const reason = `prompt-injection attempt detected (${injection.passages.map((p) => p.label).join(", ")})`;
+    for (const q of [pts_a.human_review, pts_j.human_review]) {
+      if (!q.some((e) => e.criterion === "INJECTION")) q.push({ criterion: "INJECTION", reason });
+    }
+  }
+
   const aDisp = pts_a.displayed_score;
   const jDisp = pts_j.displayed_score;
   const headline_score = aDisp !== null && jDisp !== null ? Math.min(aDisp, jDisp) : null;
@@ -840,6 +886,10 @@ export function calculate_scores(
     lexicon_hits: lexiconHits,
     org_resolutions: orgResolutions,
     warnings,
+    consistency: options.consistency ?? null,
+    consistency_note: options.consistencyNote,
+    injection,
+    audit: options.audit,
     provenance: {
       ...provenance,
       coverage_pct: Math.round((pts_a.coverage_pct + pts_j.coverage_pct) / 2),
