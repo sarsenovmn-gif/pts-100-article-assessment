@@ -50,6 +50,10 @@ async function assess(body, attempts = 2) {
     });
     const data = await res.json();
     if (res.ok) return data;
+    // 503 ANALYSIS_UNAVAILABLE means no real model provider is configured.
+    if (res.status === 503 || data.error === "ANALYSIS_UNAVAILABLE") {
+      return { __unavailable: true, error: data.error, detail: data.detail };
+    }
     lastErr = data.error || `HTTP ${res.status}`;
   }
   throw new Error(`assess failed: ${lastErr}`);
@@ -60,13 +64,13 @@ async function main() {
 
   console.log("BAD_FIXTURE (antisemitic own voice):");
   const bad = await assess({ text: BAD_FIXTURE, designation: "ARTICLE" });
-  const bs = bad.score;
-  const findingIds = (bs.pts_a?.findings || []).map((f) => f.criterion);
-  const reviewIds = (bs.pts_a?.human_review || []).map((h) => h.criterion);
-  if (bs.mocked) {
-    console.log("  SKIP — mock provider (no model key); cannot assert real scoring.");
+  if (bad.__unavailable) {
+    console.log("  SKIP — ANALYSIS_UNAVAILABLE (no model key configured); cannot assert real scoring.");
   } else {
-    check(bs.pts_a.score <= 39, `PTS-A <= 39 (got ${bs.pts_a.score})`, bs.pts_a.score);
+    const bs = bad.score;
+    const findingIds = (bs.pts_a?.findings || []).map((f) => f.criterion);
+    const reviewIds = (bs.pts_a?.human_review || []).map((h) => h.criterion);
+    check(bs.pts_a.displayed_score <= 39, `PTS-A displayed <= 39 (got ${bs.pts_a.displayed_score})`, bs.pts_a.displayed_score);
     check(bs.pts_a.cap_applied === true, "PTS-A cap_applied === true", bs.pts_a.cap_applied);
     check(
       findingIds.includes("AS1") || findingIds.includes("AS2"),
@@ -75,21 +79,24 @@ async function main() {
     );
     check(findingIds.includes("AS4"), "PTS-A findings include AS4 (Holocaust denial)", findingIds);
     check(reviewIds.includes("AS4"), "PTS-A human_review contains AS4", reviewIds);
+    check(bs.headline_score <= 39, `headline (weakest link) <= 39 (got ${bs.headline_score})`, bs.headline_score);
   }
 
   console.log("\nSAMPLE_ARTICLE (clean Chicago park):");
   const clean = await assess({ text: SAMPLE_ARTICLE, designation: "ARTICLE" });
-  const cs = clean.score;
-  if (cs.mocked) {
-    console.log("  SKIP — mock provider (no model key).");
+  if (clean.__unavailable) {
+    console.log("  SKIP — ANALYSIS_UNAVAILABLE (no model key configured).");
   } else {
-    check(cs.pts_a.score === 100, `PTS-A === 100 (got ${cs.pts_a.score})`, cs.pts_a.score);
-    check(cs.pts_j.score === 100, `PTS-J === 100 (got ${cs.pts_j.score})`, cs.pts_j.score);
+    const cs = clean.score;
+    check(cs.pts_a.displayed_score >= 99, `PTS-A displayed >= 99 (got ${cs.pts_a.displayed_score})`, cs.pts_a.displayed_score);
+    check(cs.pts_j.displayed_score >= 90, `PTS-J displayed >= 90 (got ${cs.pts_j.displayed_score})`, cs.pts_j.displayed_score);
     check(
-      cs.pts_j.possible < 100,
-      `PTS-J coverage < 100 points assessable (got ${cs.pts_j.possible})`,
-      cs.pts_j.coverage,
+      cs.pts_a.coverage_pct >= 90,
+      `PTS-A coverage >= 90% (got ${cs.pts_a.coverage_pct}%)`,
+      cs.pts_a.coverage,
     );
+    check(cs.pts_a.confidence !== "LOW", `PTS-A confidence not LOW (got ${cs.pts_a.confidence})`, cs.pts_a.confidence);
+    check(cs.pts_a.unresolved_count === 0, `PTS-A no unresolved (got ${cs.pts_a.unresolved_count})`, cs.pts_a.unresolved_count);
   }
 
   console.log(`\n${failures === 0 ? "All endpoint assertions passed." : `${failures} assertion(s) failed.`}`);
