@@ -2,6 +2,7 @@ import { CONDUCT_META, CRITERION_META } from "@/lib/rubric";
 import type {
   Assessment,
   ArticleParts,
+  AuditData,
   Finding,
   PtsSubScore,
   Scores,
@@ -106,6 +107,9 @@ function FindingCard({ f }: { f: Finding }) {
         )}
         {f.quote_match === "unverified" && (
           <span className="rounded bg-indigo-500/20 px-1.5 text-indigo-300">quote unverified</span>
+        )}
+        {f.irony_possible && (
+          <span className="rounded bg-fuchsia-500/20 px-1.5 text-fuchsia-300">irony possible</span>
         )}
       </div>
       {f.quote && (
@@ -288,6 +292,111 @@ function SubScoreCard({ code, label, sub }: { code: string; label: string; sub: 
   );
 }
 
+function verdictBadge(v: string): string {
+  if (v === "CONFIRMED") return "bg-red-500/20 text-red-300";
+  if (v === "DOWNGRADED") return "bg-amber-500/20 text-amber-300";
+  return "bg-zinc-700/50 text-zinc-400";
+}
+
+function AuditPanel({ audit }: { audit: AuditData }) {
+  const runs = audit.prosecutor_runs ?? [];
+  const rejected = (audit.verdicts ?? []).filter((v) => v.verdict === "REJECTED");
+  return (
+    <details className="rounded-2xl border border-white/10 bg-black/20 p-4 sm:p-5">
+      <summary className="cursor-pointer select-none text-xs font-semibold uppercase tracking-wider text-zinc-400">
+        Audit — why did it pass? ({audit.merged_allegations?.length ?? 0} allegations,{" "}
+        {(audit.verdicts ?? []).filter((v) => v.verdict !== "REJECTED").length} confirmed,{" "}
+        {rejected.length} rejected)
+      </summary>
+
+      <div className="mt-4 space-y-4">
+        {audit.consistency !== null && audit.consistency !== undefined && (
+          <p className="text-xs text-zinc-400">
+            <span className="font-semibold text-zinc-300">Consistency {audit.consistency.toFixed(2)}</span> —{" "}
+            {audit.consistency_note}
+          </p>
+        )}
+
+        {runs.length > 0 && (
+          <div>
+            <h5 className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+              Prosecutor allegations per run ({runs.length} run{runs.length === 1 ? "" : "s"})
+            </h5>
+            <div className="space-y-2">
+              {runs.map((r, ri) => (
+                <div key={ri} className="rounded-lg border border-white/5 bg-black/30 p-2.5">
+                  <div className="mb-1 text-[10px] uppercase tracking-wider text-zinc-600">Run {ri + 1}</div>
+                  {r.allegations.length === 0 ? (
+                    <p className="text-xs text-zinc-500">No allegations.</p>
+                  ) : (
+                    <ul className="space-y-1">
+                      {r.allegations.map((a, ai) => (
+                        <li key={ai} className="text-xs text-zinc-400">
+                          <span className="font-mono font-semibold text-zinc-300">{a.criterion}</span>{" "}
+                          <span className="text-zinc-500">[{a.stance}]</span> {a.argument}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {(audit.verdicts ?? []).length > 0 && (
+          <div>
+            <h5 className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+              Judge verdicts (rule cited)
+            </h5>
+            <ul className="space-y-1.5">
+              {(audit.verdicts ?? []).map((v, i) => (
+                <li key={i} className="flex flex-wrap items-center gap-2 text-xs text-zinc-400">
+                  <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${verdictBadge(v.verdict)}`}>
+                    {v.verdict}
+                  </span>
+                  <span className="font-mono text-zinc-300">{v.final_criterion}</span>
+                  <span className="min-w-0 flex-1 text-zinc-500">{v.reason}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {(audit.dismissed_lexicon_hits ?? []).length > 0 && (
+          <div>
+            <h5 className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+              Lexicon hits dismissed
+            </h5>
+            <ul className="space-y-1">
+              {audit.dismissed_lexicon_hits.map((d, i) => (
+                <li key={i} className="text-xs text-zinc-400">
+                  <span className="font-mono text-zinc-300">{d.id}</span> — {d.reason}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {(audit.normalisation_events ?? []).length > 0 && (
+          <div>
+            <h5 className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+              Matched after normalisation
+            </h5>
+            <ul className="space-y-1">
+              {audit.normalisation_events.map((n, i) => (
+                <li key={i} className="text-xs text-zinc-400">
+                  <span className="font-mono text-zinc-300">“{n.original}”</span> {n.normalised}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+    </details>
+  );
+}
+
 export function ResultsPanel({
   score,
   assessment,
@@ -306,6 +415,21 @@ export function ResultsPanel({
         <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
           <span className="font-semibold">Mock result (development only).</span> PTS_ALLOW_MOCK is
           enabled; this is a placeholder assessment, never a production result.
+        </div>
+      )}
+
+      {score.injection?.suspected && (
+        <div className="rounded-xl border border-fuchsia-500/40 bg-fuchsia-500/10 px-4 py-3 text-sm text-fuchsia-200">
+          <span className="font-semibold">Prompt-injection attempt detected.</span> The text contains
+          instructions aimed at the assessor; they were ignored, the result is routed to human review,
+          and the scores below are computed from the content only.
+          <ul className="mt-2 space-y-1 text-xs text-fuchsia-200/80">
+            {score.injection.passages.slice(0, 4).map((p, i) => (
+              <li key={i}>
+                <span className="text-fuchsia-300/70">[{p.label}]</span> “{p.text}”
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 
@@ -329,6 +453,12 @@ export function ResultsPanel({
           <Chip label="Language" value={score.language} />
           <Chip label="Stance" value={score.overall_stance} />
           <Chip label="Candidate passages" value={String(score.candidate_passages?.length ?? 0)} />
+          {score.consistency !== null && score.consistency !== undefined && (
+            <Chip label="Consistency" value={score.consistency.toFixed(2)} />
+          )}
+          {score.provenance.architecture && (
+            <Chip label="Architecture" value={score.provenance.architecture} />
+          )}
         </div>
       </div>
 
@@ -445,6 +575,8 @@ export function ResultsPanel({
         </Section>
       )}
 
+      {score.audit && <AuditPanel audit={score.audit} />}
+
       <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-xs text-zinc-500">
         <div className="flex flex-wrap gap-x-6 gap-y-1.5">
           {parts.headline && (
@@ -476,10 +608,23 @@ export function ResultsPanel({
         </div>
         {parts.warning && <p className="mt-2 text-amber-300/80">{parts.warning}</p>}
         <div className="mt-3 border-t border-white/5 pt-3 font-mono text-[11px] text-zinc-600">
-          run {score.provenance.run_id} · {score.provenance.model} · {score.provenance.prompt_version}
+          run {score.provenance.run_id} · {score.provenance.prompt_version}
           {score.provenance.rubric_version && ` · ${score.provenance.rubric_version}`}
           {score.provenance.lexicon_version && ` · lex:${score.provenance.lexicon_version}`}
           {score.provenance.input_sha256 && ` · sha256:${score.provenance.input_sha256}`}
+          {score.provenance.architecture === "two-pass" ? (
+            <>
+              {` · prosecutor:${score.provenance.prosecutor_model} ×${score.provenance.prosecutor_runs}`}
+              {`@${score.provenance.prosecutor_temperature}`}
+              {` · judge:${score.provenance.judge_model} ×${score.provenance.judge_runs}`}
+              {score.provenance.chunking_used ? " · chunked" : ""}
+              {score.provenance.normalisation_event_count
+                ? ` · norm:${score.provenance.normalisation_event_count}`
+                : ""}
+            </>
+          ) : (
+            ` · ${score.provenance.model}`
+          )}
         </div>
       </div>
     </div>
