@@ -32,6 +32,8 @@ export type AssessOptions = {
   languageHint?: string | null;
   runId?: string | null;
   lexiconHits?: LexiconHit[];
+  /** Abort signal propagated from the route time budget. */
+  signal?: AbortSignal;
 };
 
 function validateAssessment(assessment: unknown, stopReason?: string): Assessment {
@@ -105,6 +107,7 @@ export async function assessArticle(articleText: string, opts: AssessOptions = {
     user: buildUserPrompt(articleText, opts, hitsText),
     tool: ASSESSMENT_TOOL,
     model: MODEL,
+    signal: opts.signal,
   });
   const assessment = validateAssessment(res.input, res.meta.stop_reason);
   assessment._provenance = {
@@ -208,7 +211,11 @@ async function produceAssessment(
     const r = await assessTwoPass(
       parts,
       text,
-      { designation: opts.designation ?? parts.designationHint ?? undefined, languageHint: opts.languageHint },
+      {
+        designation: opts.designation ?? parts.designationHint ?? undefined,
+        languageHint: opts.languageHint,
+        signal: opts.signal,
+      },
       hits,
     );
     return {

@@ -37,6 +37,8 @@ import type {
 export type TwoPassOptions = {
   designation?: Designation | string | null;
   languageHint?: string | null;
+  /** Abort signal propagated from the route time budget. */
+  signal?: AbortSignal;
 };
 
 export type TwoPassResult = {
@@ -340,23 +342,34 @@ ${sanitise(chunkText)}
 export async function runProsecutorOnce(
   chunks: { text: string; header: string }[],
   hitsText: string,
-  opts: { designation?: Designation | string | null; languageHint?: string | null },
+  opts: { designation?: Designation | string | null; languageHint?: string | null; signal?: AbortSignal },
+  runIndex = 0,
+  totalRuns = 1,
 ): Promise<Prosecution> {
+  const t0 = Date.now();
+  // Chunks are independent — run them in parallel, keeping the original order.
+  const perChunk = await Promise.all(
+    chunks.map(async (chunk) => {
+      const res = await callTool({
+        system: PROSECUTOR_SYSTEM_PROMPT,
+        user: prosecutorUserPrompt(chunk.text, chunk.header, hitsText, opts),
+        tool: PROSECUTION_TOOL,
+        model: PROSECUTOR_MODEL,
+        temperature: PROSECUTOR_TEMPERATURE,
+        signal: opts.signal,
+      });
+      return (res.input ?? {}) as Partial<Prosecution>;
+    }),
+  );
+
   const merged: Prosecution = { allegations: [], candidate_passages: [], claims: [], dismissed_lexicon_hits: [] };
-  for (const chunk of chunks) {
-    const res = await callTool({
-      system: PROSECUTOR_SYSTEM_PROMPT,
-      user: prosecutorUserPrompt(chunk.text, chunk.header, hitsText, opts),
-      tool: PROSECUTION_TOOL,
-      model: PROSECUTOR_MODEL,
-      temperature: PROSECUTOR_TEMPERATURE,
-    });
-    const p = (res.input ?? {}) as Partial<Prosecution>;
+  for (const p of perChunk) {
     if (Array.isArray(p.allegations)) merged.allegations.push(...p.allegations);
     if (Array.isArray(p.candidate_passages)) merged.candidate_passages.push(...p.candidate_passages);
     if (Array.isArray(p.claims)) merged.claims.push(...p.claims);
     if (Array.isArray(p.dismissed_lexicon_hits)) merged.dismissed_lexicon_hits.push(...p.dismissed_lexicon_hits);
   }
+  console.log(`[pts] stage=prosecutor run=${runIndex + 1}/${totalRuns} chunks=${chunks.length} took ${Date.now() - t0}ms`);
   return dedupeProsecution(merged);
 }
 
@@ -465,7 +478,9 @@ ${sanitise(fullText)}
 export async function runJudgeOnce(
   fullText: string,
   allegations: ProsecutorAllegation[],
+  signal?: AbortSignal,
 ): Promise<{ judgement: Judgement; model: string; meta: { stop_reason?: string; usage?: Record<string, unknown> } }> {
+  const t0 = Date.now();
   const res = await callTool({
     system: JUDGE_SYSTEM_PROMPT,
     user: judgeUserPrompt(fullText, allegations),
@@ -473,7 +488,9 @@ export async function runJudgeOnce(
     model: JUDGE_MODEL,
     fallbackModel: JUDGE_FALLBACK_MODEL,
     temperature: 0,
+    signal,
   });
+  console.log(`[pts] stage=judge model=${res.meta.model} took ${Date.now() - t0}ms`);
   return { judgement: res.input as Judgement, model: res.meta.model, meta: { stop_reason: res.meta.stop_reason, usage: res.meta.usage } };
 }
 
@@ -657,21 +674,28 @@ export async function assessTwoPass(
   const hitsText = formatHitsForPrompt(hits);
   const chunks = bodyChunks.map((c) => ({ text: c.text, header }));
 
-  // Prosecutor: N independent runs at temperature 0.7 (each over every chunk).
-  const runs: Prosecution[] = [];
-  for (let r = 0; r < PROSECUTOR_RUNS; r++) {
-    runs.push(await runProsecutorOnce(chunks, hitsText, opts));
-  }
+  // Prosecutor: N independent runs at temperature 0.7 (each over every chunk),
+  // all runs and all chunks in parallel. Promise.all preserves order, so the
+  // merged result is identical to the previous sequential implementation.
+  const proStart = Date.now();
+  const runs = await Promise.all(
+    Array.from({ length: PROSECUTOR_RUNS }, (_, r) =>
+      runProsecutorOnce(chunks, hitsText, opts, r, PROSECUTOR_RUNS),
+    ),
+  );
+  console.log(`[pts] stage=prosecutor all ${PROSECUTOR_RUNS} runs took ${Date.now() - proStart}ms`);
   const { merged, candidate_passages, claims, dismissed } = mergeRuns(runs);
 
   // Judge: precision pass on the FULL text (never chunked).
+  const judgeStart = Date.now();
   const judgements: Judgement[] = [];
   let judgeModel = JUDGE_MODEL;
   for (let r = 0; r < JUDGE_RUNS; r++) {
-    const jr = await runJudgeOnce(fullText, merged);
+    const jr = await runJudgeOnce(fullText, merged, opts.signal);
     judgements.push(jr.judgement);
     judgeModel = jr.model;
   }
+  console.log(`[pts] stage=judge all ${JUDGE_RUNS} run(s) took ${Date.now() - judgeStart}ms`);
   const judgement = combineJudgements(judgements);
 
   const { consistency, note } = computeConsistency(merged, judgement.verdicts ?? [], PROSECUTOR_RUNS);

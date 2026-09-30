@@ -18,6 +18,16 @@ export class ModelError extends Error {
   }
 }
 
+/** Provider rejected our credentials (HTTP 401/403). */
+export class ProviderAuthError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ProviderAuthError";
+    this.status = status;
+  }
+}
+
 export function getProvider(): Provider {
   if ((process.env.OPENROUTER_API_KEY || "").trim()) return "openrouter";
   if ((process.env.ANTHROPIC_API_KEY || "").trim()) return "anthropic";
@@ -39,6 +49,8 @@ export type CallOptions = {
   maxTokens?: number;
   /** Optional fallback model if the primary id is rejected by the API. */
   fallbackModel?: string;
+  /** Abort signal propagated from the route time budget. */
+  signal?: AbortSignal;
 };
 
 export type CallResult = {
@@ -75,15 +87,18 @@ async function callViaAnthropic(opts: CallOptions): Promise<CallResult> {
   let lastErr: unknown;
   for (const model of models) {
     try {
-      const response = await client.messages.create({
-        model,
-        max_tokens: opts.maxTokens ?? MAX_TOKENS,
-        temperature: opts.temperature ?? TEMPERATURE,
-        system: opts.system,
-        messages: [{ role: "user", content: opts.user }],
-        tools: [opts.tool as unknown as Anthropic.Tool],
-        tool_choice: { type: "tool", name: opts.tool.name },
-      });
+      const response = await client.messages.create(
+        {
+          model,
+          max_tokens: opts.maxTokens ?? MAX_TOKENS,
+          temperature: opts.temperature ?? TEMPERATURE,
+          system: opts.system,
+          messages: [{ role: "user", content: opts.user }],
+          tools: [opts.tool as unknown as Anthropic.Tool],
+          tool_choice: { type: "tool", name: opts.tool.name },
+        },
+        { signal: opts.signal },
+      );
       console.log(
         `[pts] anthropic model=${response.model} stop_reason=${response.stop_reason} usage=${JSON.stringify(response.usage ?? {})}`,
       );
@@ -107,6 +122,9 @@ async function callViaAnthropic(opts: CallOptions): Promise<CallResult> {
       lastErr = e;
       const status = (e as { status?: number })?.status ?? 0;
       const msg = e instanceof Error ? e.message : String(e);
+      if (status === 401 || status === 403) {
+        throw new ProviderAuthError(`Anthropic rejected the API key (HTTP ${status}).`, status);
+      }
       if (model !== models[models.length - 1] && isBadModel(status, msg)) continue;
       throw e;
     }
@@ -148,6 +166,7 @@ async function callViaOpenRouter(opts: CallOptions): Promise<CallResult> {
     let lastError = "";
     let badModel = false;
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      if (opts.signal?.aborted) throw new ModelError("Assessment aborted (time budget).");
       const res = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
         method: "POST",
         headers: {
@@ -157,12 +176,17 @@ async function callViaOpenRouter(opts: CallOptions): Promise<CallResult> {
           "X-Title": "PTS Publication Trust Score",
         },
         body: JSON.stringify(payload),
+        signal: opts.signal,
       });
 
       if ([429, 500, 502, 503, 529].includes(res.status)) {
         lastError = `HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`;
+        if (opts.signal?.aborted) throw new ModelError("Assessment aborted (time budget).");
         await new Promise((r) => setTimeout(r, Math.min(2 ** attempt * 1000, 20000)));
         continue;
+      }
+      if (res.status === 401 || res.status === 403) {
+        throw new ProviderAuthError(`OpenRouter rejected the API key (HTTP ${res.status}).`, res.status);
       }
       if (!res.ok) {
         const body = (await res.text()).slice(0, 500);

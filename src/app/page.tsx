@@ -47,10 +47,28 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      const data = await res.json();
+
+      const raw = await res.text();
+      let data: Record<string, unknown>;
+      try {
+        data = JSON.parse(raw);
+      } catch {
+        // A non-JSON body is a platform-level error page (e.g. a function
+        // timeout), not an application response — surface it as what it is.
+        throw new Error(
+          `Server returned a non-JSON response (HTTP ${res.status}): ${raw.slice(0, 200)}`,
+        );
+      }
+
       if (!res.ok) {
         if (data.stop_reason) setStopReason(String(data.stop_reason));
-        throw new Error(data.error || "Assessment failed.");
+        const parts = [
+          (data.error as string) || "Assessment failed.",
+          data.detail ? String(data.detail) : "",
+          data.code ? `[${data.code}]` : "",
+          `HTTP ${res.status}`,
+        ].filter(Boolean);
+        throw new Error(parts.join(" · "));
       }
       setResult(data as AssessResponse);
     } catch (e) {
