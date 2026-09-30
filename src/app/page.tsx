@@ -8,7 +8,8 @@ type Mode = "url" | "text";
 
 const DESIGNATIONS: { value: string; label: string }[] = [
   { value: "auto", label: "Auto (let the model decide)" },
-  { value: "ARTICLE", label: "Article" },
+  { value: "ARTICLE", label: "News article" },
+  { value: "OPINION", label: "Opinion / editorial" },
   { value: "POST", label: "Social-media post" },
   { value: "DOCUMENTARY", label: "Documentary / research" },
   { value: "SATIRE", label: "Satire" },
@@ -86,10 +87,14 @@ export default function Home() {
           <span className="text-zinc-200">PTS-A</span> for antisemitism (IHRA
           Working Definition) and{" "}
           <span className="text-zinc-200">PTS-J</span> for journalistic standards
-          (IMPRESS Standards Code). The model returns evidence-backed judgements;
-          a deterministic scorer verifies every quote, applies the stance gate and
-          critical caps, and routes findings for human review. The two scores are
-          never blended.
+          (IMPRESS Standards Code). The model adjudicates each criterion with a
+          graded severity; a deterministic scorer verifies every quote, runs a
+          coded-language pre-scan, resolves designated organisations from
+          versioned lists, and reports{" "}
+          <span className="text-zinc-200">coverage</span> and{" "}
+          <span className="text-zinc-200">confidence</span> alongside the score. A
+          definitive 100 must be earned — absence of a detected violation is not
+          treated as demonstrated compliance. The two scores are never blended.
         </p>
       </header>
 
@@ -222,10 +227,12 @@ export default function Home() {
 
       {!result && !loading && !error && (
         <p className="mt-10 text-center text-xs text-zinc-600">
-          No key configured? The app returns a labelled all-PASS mock so you can
-          explore the flow. Set{" "}
-          <code className="text-zinc-400">ANTHROPIC_API_KEY</code> for real
-          scoring.
+          Real scoring needs a model key. Set{" "}
+          <code className="text-zinc-400">OPENROUTER_API_KEY</code> or{" "}
+          <code className="text-zinc-400">ANTHROPIC_API_KEY</code>. Without a key
+          the app returns{" "}
+          <code className="text-zinc-400">ANALYSIS_UNAVAILABLE</code> rather than a
+          score — it never fabricates a passing result.
         </p>
       )}
     </main>

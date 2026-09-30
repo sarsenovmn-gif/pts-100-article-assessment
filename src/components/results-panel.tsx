@@ -1,9 +1,11 @@
-import { CONDUCT_META, CRITERION_META, JD_DEDUCTION } from "@/lib/rubric";
+import { CONDUCT_META, CRITERION_META } from "@/lib/rubric";
 import type {
   Assessment,
   ArticleParts,
+  Finding,
   PtsSubScore,
   Scores,
+  Severity,
 } from "@/lib/types";
 
 function scoreColor(score: number | null): string {
@@ -14,19 +16,47 @@ function scoreColor(score: number | null): string {
   return "text-red-400";
 }
 
-function statusColor(status: string): string {
-  if (status === "PASS") return "text-emerald-400";
-  if (status === "FAIL") return "text-red-400";
-  return "text-zinc-500";
+function severityColor(sev: Severity): string {
+  switch (sev) {
+    case "PASS":
+      return "text-emerald-400";
+    case "MINOR":
+      return "text-lime-400";
+    case "MODERATE":
+      return "text-amber-400";
+    case "MAJOR":
+    case "SEVERE":
+      return "text-red-400";
+    case "UNRESOLVED":
+      return "text-indigo-300";
+    default:
+      return "text-zinc-500";
+  }
 }
 
-function Chip({
-  label,
-  value,
-}: {
-  label: string;
-  value: string | null | undefined;
-}) {
+function severityBadge(sev: Severity): string {
+  switch (sev) {
+    case "SEVERE":
+    case "MAJOR":
+      return "bg-red-500/20 text-red-300";
+    case "MODERATE":
+      return "bg-amber-500/20 text-amber-300";
+    case "MINOR":
+      return "bg-lime-500/20 text-lime-300";
+    case "UNRESOLVED":
+      return "bg-indigo-500/20 text-indigo-300";
+    default:
+      return "bg-zinc-700/50 text-zinc-300";
+  }
+}
+
+function confidenceColor(c: string): string {
+  if (c === "HIGH") return "text-emerald-400";
+  if (c === "MEDIUM") return "text-amber-400";
+  return "text-red-400";
+}
+
+function Chip({ label, value }: { label: string; value: string | null | undefined }) {
   if (!value) return null;
   return (
     <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-xs text-zinc-300">
@@ -36,13 +66,7 @@ function Chip({
   );
 }
 
-function Section({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 sm:p-5">
       <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-400">
@@ -53,106 +77,159 @@ function Section({
   );
 }
 
-function Findings({ findings }: { findings: PtsSubScore["findings"] }) {
-  if (findings.length === 0) return null;
+function FindingCard({ f }: { f: Finding }) {
+  const meta = CRITERION_META[f.criterion];
   return (
-    <div className="mt-4 space-y-3">
-      <h4 className="text-[11px] font-semibold uppercase tracking-wider text-red-300/80">
-        Findings — deductions ({findings.length})
-      </h4>
-      {findings.map((f, i) => {
-        const meta = CRITERION_META[f.criterion];
-        return (
-          <div
-            key={i}
-            className="rounded-xl border border-red-500/20 bg-red-500/[0.06] p-3"
-          >
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="rounded bg-red-500/20 px-1.5 py-0.5 font-mono text-xs font-semibold text-red-300">
-                {f.criterion}
-              </span>
-              <span className="text-sm font-medium text-zinc-200">
-                {meta?.name ?? f.criterion}
-              </span>
-              <span className="ml-auto font-mono text-sm font-semibold text-red-300">
-                −{f.points_lost}
-              </span>
-            </div>
-            <div className="mt-1.5 flex flex-wrap gap-2 text-[11px] text-zinc-400">
-              <span>stance: {f.stance}</span>
-              {f.ihra_examples.length > 0 && (
-                <span>IHRA {f.ihra_examples.join(", ")}</span>
-              )}
-              {f.confidence !== null && (
-                <span>confidence {f.confidence.toFixed(2)}</span>
-              )}
-              {f.quote_match === "approximate" && (
-                <span className="rounded bg-amber-500/20 px-1.5 text-amber-300">
-                  approximate quote
-                </span>
-              )}
-            </div>
-            {f.quote && (
-              <blockquote className="mt-2 border-l-2 border-red-400/40 pl-3 text-xs italic text-zinc-300">
-                “{f.quote}”
-              </blockquote>
-            )}
-            {f.rationale && (
-              <p className="mt-2 text-xs leading-5 text-zinc-400">
-                {f.rationale}
-              </p>
-            )}
-          </div>
-        );
-      })}
+    <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className={`rounded px-1.5 py-0.5 font-mono text-xs font-semibold ${severityBadge(f.severity)}`}>
+          {f.criterion}
+        </span>
+        <span className="text-sm font-medium text-zinc-200">{meta?.name ?? f.criterion}</span>
+        <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase ${severityBadge(f.severity)}`}>
+          {f.severity}
+        </span>
+        <span className="ml-auto font-mono text-sm font-semibold text-red-300">
+          −{Math.round(f.points_lost * 100) / 100}
+          <span className="text-zinc-600">/{f.points_possible}</span>
+        </span>
+      </div>
+      <div className="mt-1.5 flex flex-wrap gap-2 text-[11px] text-zinc-400">
+        {f.stance && f.stance !== "N/A" && <span>stance: {f.stance}</span>}
+        {f.three_d && <span className="text-fuchsia-300">3D: {f.three_d}</span>}
+        {f.rung && <span className="text-orange-300">{f.rung}</span>}
+        {f.section && <span>section: {f.section}</span>}
+        {f.ihra_examples.length > 0 && <span>IHRA {f.ihra_examples.join(", ")}</span>}
+        {f.confidence !== null && <span>confidence {f.confidence.toFixed(2)}</span>}
+        {f.quote_match === "approximate" && (
+          <span className="rounded bg-amber-500/20 px-1.5 text-amber-300">approximate quote</span>
+        )}
+        {f.quote_match === "unverified" && (
+          <span className="rounded bg-indigo-500/20 px-1.5 text-indigo-300">quote unverified</span>
+        )}
+      </div>
+      {f.quote && (
+        <blockquote className="mt-2 border-l-2 border-red-400/40 pl-3 text-xs italic text-zinc-300">
+          “{f.quote}”
+        </blockquote>
+      )}
+      {f.rationale && <p className="mt-2 text-xs leading-5 text-zinc-400">{f.rationale}</p>}
     </div>
   );
 }
 
-function ConductBreaches({
-  breaches,
-}: {
-  breaches: NonNullable<PtsSubScore["conduct_breaches"]>;
-}) {
-  if (breaches.length === 0) return null;
+function CoverageBar({ pct }: { pct: number }) {
+  const color = pct >= 90 ? "bg-emerald-400" : pct >= 70 ? "bg-amber-400" : "bg-red-400";
   return (
-    <div className="mt-4 space-y-3">
-      <h4 className="text-[11px] font-semibold uppercase tracking-wider text-orange-300/80">
-        Conduct breaches ({breaches.length})
-      </h4>
-      {breaches.map((b, i) => (
-        <div
-          key={i}
-          className="rounded-xl border border-orange-500/20 bg-orange-500/[0.06] p-3"
-        >
-          <div className="flex items-center gap-2">
-            <span className="rounded bg-orange-500/20 px-1.5 py-0.5 font-mono text-xs font-semibold text-orange-300">
-              Clause {b.clause}
+    <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-white/10">
+      <div className={`h-full rounded-full ${color}`} style={{ width: `${pct}%` }} />
+    </div>
+  );
+}
+
+function SubScoreCard({ code, label, sub }: { code: string; label: string; sub: PtsSubScore }) {
+  const display = sub.displayed_score === null ? "—" : String(sub.displayed_score);
+  return (
+    <div className="flex-1 rounded-2xl border border-white/10 bg-white/[0.04] p-5">
+      <div className="flex items-start gap-4">
+        <div className="flex shrink-0 flex-col items-center justify-center">
+          <span className={`text-5xl font-bold tabular-nums ${scoreColor(sub.displayed_score)}`}>
+            {display}
+          </span>
+          <span className="text-[10px] uppercase tracking-widest text-zinc-500">{code}</span>
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="text-xs text-zinc-500">{label}</div>
+          <div className={`text-base font-semibold ${scoreColor(sub.displayed_score)}`}>{sub.tier}</div>
+          <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-zinc-500">
+            <span>coverage {sub.coverage_pct}%</span>
+            <span>
+              confidence <span className={confidenceColor(sub.confidence)}>{sub.confidence}</span>
             </span>
-            <span className="text-sm font-medium text-zinc-200">
-              {CONDUCT_META[b.clause] ?? "Conduct"}
-            </span>
-            <span className="ml-auto font-mono text-sm font-semibold text-orange-300">
-              −{JD_DEDUCTION}
-            </span>
+            {sub.unresolved_count > 0 && (
+              <span className="text-indigo-300">{sub.unresolved_count} unresolved</span>
+            )}
           </div>
-          {b.quote && (
-            <blockquote className="mt-2 border-l-2 border-orange-400/40 pl-3 text-xs italic text-zinc-300">
-              “{b.quote}”
-            </blockquote>
-          )}
-          {b.rationale && (
-            <p className="mt-2 text-xs leading-5 text-zinc-400">{b.rationale}</p>
+          <CoverageBar pct={sub.coverage_pct} />
+          <div className="mt-1 text-[10px] text-zinc-600">{sub.coverage}</div>
+        </div>
+      </div>
+
+      {sub.inconclusive && sub.inconclusive_reason && (
+        <div className="mt-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[11px] leading-4 text-amber-200">
+          <span className="font-semibold">Not a definitive 100.</span> {sub.inconclusive_reason}
+        </div>
+      )}
+
+      {sub.cap_applied && (
+        <div className="mt-3 rounded-xl border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs text-red-200">
+          <span className="font-semibold">Cap applied ({sub.score}).</span> {sub.cap_reason}
+          {sub.raw_before_cap !== null && (
+            <span className="text-red-300/70"> (raw {sub.raw_before_cap})</span>
           )}
         </div>
-      ))}
-    </div>
-  );
-}
+      )}
 
-function ReviewLists({ sub }: { sub: PtsSubScore }) {
-  return (
-    <>
+      {sub.findings.length > 0 && (
+        <div className="mt-4 space-y-3">
+          <h4 className="text-[11px] font-semibold uppercase tracking-wider text-red-300/80">
+            Findings ({sub.findings.length})
+          </h4>
+          {sub.findings.map((f, i) => (
+            <FindingCard key={i} f={f} />
+          ))}
+        </div>
+      )}
+
+      {sub.conduct_breaches && sub.conduct_breaches.length > 0 && (
+        <div className="mt-4 space-y-3">
+          <h4 className="text-[11px] font-semibold uppercase tracking-wider text-orange-300/80">
+            Conduct breaches ({sub.conduct_breaches.length})
+          </h4>
+          {sub.conduct_breaches.map((b, i) => (
+            <div key={i} className="rounded-xl border border-orange-500/20 bg-orange-500/[0.06] p-3">
+              <div className="flex items-center gap-2">
+                <span className="rounded bg-orange-500/20 px-1.5 py-0.5 font-mono text-xs font-semibold text-orange-300">
+                  Clause {b.clause}
+                </span>
+                <span className="text-sm font-medium text-zinc-200">
+                  {CONDUCT_META[b.clause] ?? "Conduct"}
+                </span>
+                <span className={`ml-auto rounded px-1.5 py-0.5 text-[10px] font-semibold ${severityBadge(b.severity)}`}>
+                  {b.severity}
+                </span>
+              </div>
+              {b.person && <div className="mt-1 text-[11px] text-zinc-400">person: {b.person}</div>}
+              {b.quote && (
+                <blockquote className="mt-2 border-l-2 border-orange-400/40 pl-3 text-xs italic text-zinc-300">
+                  “{b.quote}”
+                </blockquote>
+              )}
+              {b.rationale && <p className="mt-2 text-xs leading-5 text-zinc-400">{b.rationale}</p>}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {sub.unresolved.length > 0 && (
+        <div className="mt-4">
+          <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-indigo-300/80">
+            Unresolved ({sub.unresolved.length})
+          </h4>
+          <ul className="space-y-2">
+            {sub.unresolved.map((u, i) => (
+              <li key={i} className="text-sm text-zinc-400">
+                <span className="rounded bg-indigo-500/20 px-1.5 py-0.5 font-mono text-xs font-semibold text-indigo-300">
+                  {u.criterion}
+                </span>{" "}
+                {u.reason}
+                {u.quote && <span className="text-zinc-600"> — “{u.quote}”</span>}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {sub.human_review.length > 0 && (
         <div className="mt-4">
           <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-indigo-300/80">
@@ -183,105 +260,30 @@ function ReviewLists({ sub }: { sub: PtsSubScore }) {
                   {r.criterion}
                 </span>{" "}
                 {r.reason}
-                {r.quote && <span className="text-zinc-600"> — “{r.quote}”</span>}
               </li>
             ))}
           </ul>
         </div>
       )}
 
-      {sub.not_assessable.length > 0 && (
+      {sub.not_applicable.length > 0 && (
         <div className="mt-4">
           <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
-            Not assessable from this text
+            Not applicable
           </h4>
           <div className="flex flex-wrap gap-2">
-            {sub.not_assessable.map((cid) => (
+            {sub.not_applicable.map((cid) => (
               <span
                 key={cid}
                 className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-xs text-zinc-400"
               >
-                <span className="font-mono font-semibold text-zinc-300">
-                  {cid}
-                </span>
+                <span className="font-mono font-semibold text-zinc-300">{cid}</span>
                 {CRITERION_META[cid]?.name}
               </span>
             ))}
           </div>
         </div>
       )}
-    </>
-  );
-}
-
-function SubScoreCard({
-  code,
-  label,
-  sub,
-}: {
-  code: string;
-  label: string;
-  sub: PtsSubScore;
-}) {
-  const display = sub.score === null ? "—" : String(sub.score);
-  return (
-    <div className="flex-1 rounded-2xl border border-white/10 bg-white/[0.04] p-5">
-      <div className="flex items-start gap-4">
-        <div className="flex shrink-0 flex-col items-center justify-center">
-          <span
-            className={`text-5xl font-bold tabular-nums ${scoreColor(sub.score)}`}
-          >
-            {display}
-          </span>
-          <span className="text-[10px] uppercase tracking-widest text-zinc-500">
-            {code}
-          </span>
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="text-xs text-zinc-500">{label}</div>
-          <div className={`text-base font-semibold ${scoreColor(sub.score)}`}>
-            {sub.tier}
-          </div>
-          <div className="mt-2 text-[11px] text-zinc-500">{sub.coverage}</div>
-        </div>
-      </div>
-
-      {sub.score !== null && sub.score >= 60 && sub.possible < 100 && (
-        <div className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/[0.07] px-3 py-2 text-[11px] leading-4 text-amber-200/80">
-          {100 - sub.possible} of 100 points weren’t assessable from this text
-          (marked N/A below). The score reflects the absence of detected problems
-          in what could be checked — it is not a full audit.
-        </div>
-      )}
-
-      {sub.cap_applied && (
-        <div className="mt-3 rounded-xl border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs text-red-200">
-          <span className="font-semibold">Cap applied (39).</span>{" "}
-          {sub.cap_reason}
-          {sub.raw_before_cap !== null && (
-            <span className="text-red-300/70">
-              {" "}
-              (raw {sub.raw_before_cap})
-            </span>
-          )}
-        </div>
-      )}
-
-      <Findings findings={sub.findings} />
-      {sub.conduct_breaches && (
-        <ConductBreaches breaches={sub.conduct_breaches} />
-      )}
-      <ReviewLists sub={sub} />
-
-      {sub.findings.length === 0 &&
-        !(sub.conduct_breaches && sub.conduct_breaches.length > 0) &&
-        sub.human_review.length === 0 &&
-        sub.rejected_findings.length === 0 &&
-        sub.not_assessable.length === 0 && (
-          <p className="mt-4 text-xs text-zinc-500">
-            No deductions, review items or gaps recorded.
-          </p>
-        )}
     </div>
   );
 }
@@ -292,34 +294,26 @@ export function ResultsPanel({
   parts,
 }: {
   score: Scores;
-  assessment: Assessment;
+  assessment: Assessment | null;
   parts: ArticleParts;
 }) {
-  const isSatire = score.pts_a.score === null && score.pts_j.score === null;
+  const isSatire = score.pts_a.displayed_score === null && score.pts_j.displayed_score === null;
   const legal = score.legal_flag;
 
   return (
     <div className="mt-8 space-y-4">
       {score.mocked && (
         <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
-          <span className="font-semibold">Mock result.</span> No model key
-          (<code className="rounded bg-black/30 px-1">OPENROUTER_API_KEY</code> or{" "}
-          <code className="rounded bg-black/30 px-1">ANTHROPIC_API_KEY</code>) is
-          configured, so this is a placeholder all-PASS assessment. Add a key for
-          a real PTS assessment.
+          <span className="font-semibold">Mock result (development only).</span> PTS_ALLOW_MOCK is
+          enabled; this is a placeholder assessment, never a production result.
         </div>
       )}
 
-      {/* Headline: weakest of the two independent scores */}
       <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.03] px-5 py-4">
         <div className="text-sm text-zinc-300">
-          <span className="font-semibold">
-            PTS-A {score.pts_a.score ?? "—"}
-          </span>
+          <span className="font-semibold">PTS-A {score.pts_a.displayed_score ?? "—"}</span>
           <span className="mx-2 text-zinc-600">·</span>
-          <span className="font-semibold">
-            PTS-J {score.pts_j.score ?? "—"}
-          </span>
+          <span className="font-semibold">PTS-J {score.pts_j.displayed_score ?? "—"}</span>
         </div>
         {!isSatire && (
           <div className="text-xs text-zinc-500">
@@ -327,32 +321,24 @@ export function ResultsPanel({
             <span className={`font-semibold ${scoreColor(score.headline_score)}`}>
               {score.headline_score ?? "—"}
             </span>{" "}
-            (the two scores are independent and never blended)
+            (independent, never blended)
           </div>
         )}
         <div className="ml-auto flex flex-wrap gap-2">
           <Chip label="Designation" value={score.designation} />
           <Chip label="Language" value={score.language} />
           <Chip label="Stance" value={score.overall_stance} />
-          <Chip
-            label="Candidate passages"
-            value={String(score.candidate_passages?.length ?? 0)}
-          />
+          <Chip label="Candidate passages" value={String(score.candidate_passages?.length ?? 0)} />
         </div>
       </div>
 
       {!isSatire && (
         <div className="rounded-xl border border-white/10 bg-white/[0.02] px-4 py-3 text-xs leading-5 text-zinc-500">
-          <span className="font-semibold text-zinc-400">Scope:</span> these scores
-          judge the <span className="text-zinc-300">text as written</span> —
-          antisemitism (IHRA) and journalistic-standards breaches (IMPRESS)
-          detectable in the piece itself, including how claims are attributed. They
-          are <span className="text-zinc-300">not</span> a fact-check of claims
-          against external reality, and <span className="text-zinc-300">not</span>{" "}
-          a bias, balance or one-sidedness meter. Reported, attributed content (a
-          {" "}
-          <span className="font-mono text-zinc-400">REPORTED_CONTEXTUALISED</span>{" "}
-          stance) is expected to score high even on a contested topic.
+          <span className="font-semibold text-zinc-400">Scope:</span> PTS judges the{" "}
+          <span className="text-zinc-300">text as written</span> — antisemitism (IHRA + Sharansky
+          3D) and journalistic-standards/sourcing breaches. It is <span className="text-zinc-300">not</span> a
+          fact-check against external reality and <span className="text-zinc-300">not</span> a bias meter.
+          A 100 requires ≥90% coverage, no unresolved criteria and adequate confidence.
         </div>
       )}
 
@@ -374,19 +360,38 @@ export function ResultsPanel({
         </div>
       )}
 
-      {/* The two independent scores, side by side */}
       <div className="flex flex-col gap-4 lg:flex-row">
-        <SubScoreCard
-          code="PTS-A"
-          label="Antisemitism (IHRA)"
-          sub={score.pts_a}
-        />
-        <SubScoreCard
-          code="PTS-J"
-          label="Journalistic standards (IMPRESS)"
-          sub={score.pts_j}
-        />
+        <SubScoreCard code="PTS-A" label="Antisemitism (IHRA + 3D)" sub={score.pts_a} />
+        <SubScoreCard code="PTS-J" label="Journalistic standards + sourcing" sub={score.pts_j} />
       </div>
+
+      {score.org_resolutions && score.org_resolutions.some((r) => r.resolved) && (
+        <Section title="Designated-source resolution (deterministic)">
+          <ul className="space-y-2 text-xs text-zinc-400">
+            {score.org_resolutions
+              .filter((r) => r.resolved)
+              .map((r, i) => (
+                <li key={i}>
+                  <span className="font-mono text-zinc-300">{r.query}</span> →{" "}
+                  <span className="font-semibold text-zinc-200">{r.canonical_name}</span>
+                  {r.designated ? (
+                    <span className="ml-1 text-amber-300">
+                      designated · {r.authority} · {r.scope}
+                      {r.wing ? ` (${r.wing} wing)` : ""} · {r.list_version}
+                    </span>
+                  ) : (
+                    <span className="ml-1 text-zinc-500">not designated</span>
+                  )}
+                  {r.via_controlled_body && (
+                    <span className="ml-1 text-zinc-500">
+                      via controlled body: {r.via_controlled_body.name}
+                    </span>
+                  )}
+                </li>
+              ))}
+          </ul>
+        </Section>
+      )}
 
       {score.summary && (
         <Section title="Summary">
@@ -395,9 +400,7 @@ export function ResultsPanel({
       )}
 
       {score.candidate_passages && score.candidate_passages.length > 0 && (
-        <Section
-          title={`Candidate passages found by the model (${score.candidate_passages.length})`}
-        >
+        <Section title={`Candidate passages (${score.candidate_passages.length})`}>
           <div className="space-y-2">
             {score.candidate_passages.map((p, i) => (
               <blockquote
@@ -411,7 +414,7 @@ export function ResultsPanel({
         </Section>
       )}
 
-      {assessment.criteria.length > 0 && (
+      {assessment && assessment.criteria.length > 0 && (
         <Section title="All criteria">
           <div className="grid gap-1.5 sm:grid-cols-2">
             {assessment.criteria.map((c) => (
@@ -419,14 +422,12 @@ export function ResultsPanel({
                 key={c.id}
                 className="flex items-center gap-2 rounded-lg border border-white/5 bg-black/20 px-2.5 py-1.5"
               >
-                <span className="font-mono text-xs font-semibold text-zinc-300">
-                  {c.id}
-                </span>
+                <span className="font-mono text-xs font-semibold text-zinc-300">{c.id}</span>
                 <span className="min-w-0 flex-1 truncate text-xs text-zinc-400">
                   {CRITERION_META[c.id]?.name ?? c.id}
                 </span>
-                <span className={`text-[10px] font-semibold ${statusColor(c.status)}`}>
-                  {c.status === "NOT_ASSESSABLE" ? "N/A" : c.status}
+                <span className={`text-[10px] font-semibold ${severityColor(c.severity)}`}>
+                  {c.severity}
                 </span>
               </div>
             ))}
@@ -444,7 +445,6 @@ export function ResultsPanel({
         </Section>
       )}
 
-      {/* Source / provenance */}
       <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-xs text-zinc-500">
         <div className="flex flex-wrap gap-x-6 gap-y-1.5">
           {parts.headline && (
@@ -457,12 +457,6 @@ export function ResultsPanel({
             <span>
               <span className="text-zinc-600">Byline:</span>{" "}
               <span className="text-zinc-400">{parts.byline}</span>
-            </span>
-          )}
-          {parts.published && (
-            <span>
-              <span className="text-zinc-600">Published:</span>{" "}
-              <span className="text-zinc-400">{parts.published}</span>
             </span>
           )}
           {parts.source && (
@@ -480,14 +474,12 @@ export function ResultsPanel({
             <span className="text-zinc-400">{parts.extractor}</span>
           </span>
         </div>
-        {parts.warning && (
-          <p className="mt-2 text-amber-300/80">{parts.warning}</p>
-        )}
+        {parts.warning && <p className="mt-2 text-amber-300/80">{parts.warning}</p>}
         <div className="mt-3 border-t border-white/5 pt-3 font-mono text-[11px] text-zinc-600">
-          run {score.provenance.run_id} · {score.provenance.model} ·{" "}
-          {score.provenance.prompt_version}
-          {score.provenance.input_sha256 &&
-            ` · sha256:${score.provenance.input_sha256}`}
+          run {score.provenance.run_id} · {score.provenance.model} · {score.provenance.prompt_version}
+          {score.provenance.rubric_version && ` · ${score.provenance.rubric_version}`}
+          {score.provenance.lexicon_version && ` · lex:${score.provenance.lexicon_version}`}
+          {score.provenance.input_sha256 && ` · sha256:${score.provenance.input_sha256}`}
         </div>
       </div>
     </div>
