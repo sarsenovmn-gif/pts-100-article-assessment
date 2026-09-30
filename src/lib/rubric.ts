@@ -13,7 +13,14 @@ export const OPENROUTER_MODEL =
 
 export const MAX_TOKENS = 12000;
 export const TEMPERATURE = 0;
-export const MAX_RETRIES = 4;
+/**
+ * Retry budget for a single model call. Kept low (default 2) for the web path:
+ * a 529 with 4 exponential retries alone can eat most of the function budget.
+ * Override with PTS_MAX_RETRIES for local/batch use.
+ */
+export const MAX_RETRIES = Math.max(1, parseInt(process.env.PTS_MAX_RETRIES || "2", 10) || 2);
+/** Per-call abort timeout (ms) passed to the provider client. */
+export const CALL_TIMEOUT_MS = Math.max(5000, parseInt(process.env.PTS_CALL_TIMEOUT_MS || "90000", 10) || 90000);
 
 // ============================================================
 // Two-pass architecture (prosecutor → judge → scorer).
@@ -41,6 +48,19 @@ export const JUDGE_RUNS = Math.max(1, parseInt(process.env.PTS_JUDGE_RUNS || "1"
 // Chunking (Part C2).
 export const CHUNK_CHARS = Math.max(1000, parseInt(process.env.PTS_CHUNK_CHARS || "6000", 10) || 6000);
 export const CHUNK_OVERLAP = 600;
+
+// Per-pass output token budgets. The prosecutor only lists allegations, so it
+// does not need the full single-pass 12k budget; the judge writes more (verdicts
+// + reasons + 3D/conduct/legal), so it gets the larger share.
+export const PROSECUTOR_MAX_TOKENS = Math.max(500, parseInt(process.env.PTS_PROSECUTOR_MAX_TOKENS || "4000", 10) || 4000);
+export const JUDGE_MAX_TOKENS = Math.max(500, parseInt(process.env.PTS_JUDGE_MAX_TOKENS || "8000", 10) || 8000);
+
+/**
+ * Overall time budget (ms) for a two-pass assessment. The orchestrator tracks
+ * elapsed time from request start and returns a structured 504 rather than
+ * letting the platform kill the function and emit a plain-text error page.
+ */
+export const TIME_BUDGET_MS = Math.max(10000, parseInt(process.env.PTS_TIME_BUDGET_MS || "240000", 10) || 240000);
 
 /** Below this many characters the publication is not assessed at all. */
 export const MIN_BODY_CHARS = 300;

@@ -1,8 +1,10 @@
 import {
   JUDGE_FALLBACK_MODEL,
+  JUDGE_MAX_TOKENS,
   JUDGE_MODEL,
   JUDGE_RUNS,
   MODEL_CRITERION_IDS,
+  PROSECUTOR_MAX_TOKENS,
   PROSECUTOR_MODEL,
   PROSECUTOR_RUNS,
   PROSECUTOR_TEMPERATURE,
@@ -10,8 +12,9 @@ import {
   SECTIONS,
   SEVERITY_RANK,
   STANCES,
+  TIME_BUDGET_MS,
 } from "./rubric";
-import { callTool, type ToolSpec } from "./provider";
+import { callTool, TimeBudgetError, type ToolSpec } from "./provider";
 import { chunkBody } from "./chunk";
 import { formatHitsForPrompt } from "./lexicon";
 import { _normalise } from "./scorer";
@@ -31,13 +34,29 @@ import type {
   Prosecution,
   ProsecutorAllegation,
   Severity,
+  StageTiming,
   ThreeDFinding,
 } from "./types";
 
 export type TwoPassOptions = {
   designation?: Designation | string | null;
   languageHint?: string | null;
+  /** Wall-clock start (Date.now()) of the request, for the time budget. */
+  startTime?: number;
+  /** Total time budget in ms (defaults to TIME_BUDGET_MS). */
+  timeBudgetMs?: number;
 };
+
+/** Reject `p` if `ms` elapses first, throwing a TimeBudgetError tagged `stage`. */
+function withDeadline<T>(p: Promise<T>, ms: number, stage: "prosecutor" | "judge", startTime: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new TimeBudgetError(stage, Date.now() - startTime)), Math.max(0, ms));
+    p.then(
+      (v) => { clearTimeout(timer); resolve(v); },
+      (e) => { clearTimeout(timer); reject(e); },
+    );
+  });
+}
 
 export type TwoPassResult = {
   assessment: Assessment;
@@ -341,17 +360,30 @@ export async function runProsecutorOnce(
   chunks: { text: string; header: string }[],
   hitsText: string,
   opts: { designation?: Designation | string | null; languageHint?: string | null },
+  runIndex = 0,
+  timings?: StageTiming[],
 ): Promise<Prosecution> {
+  // Chunks are independent — run them in parallel and merge in original order.
+  const perChunk = await Promise.all(
+    chunks.map(async (chunk, ci) => {
+      const t0 = Date.now();
+      const res = await callTool({
+        system: PROSECUTOR_SYSTEM_PROMPT,
+        user: prosecutorUserPrompt(chunk.text, chunk.header, hitsText, opts),
+        tool: PROSECUTION_TOOL,
+        model: PROSECUTOR_MODEL,
+        temperature: PROSECUTOR_TEMPERATURE,
+        maxTokens: PROSECUTOR_MAX_TOKENS,
+      });
+      const ms = Date.now() - t0;
+      console.log(`[pts] stage=prosecutor run=${runIndex + 1} chunk=${ci + 1} ms=${ms}`);
+      timings?.push({ stage: "prosecutor", run: runIndex + 1, chunk: ci + 1, ms });
+      return (res.input ?? {}) as Partial<Prosecution>;
+    }),
+  );
+
   const merged: Prosecution = { allegations: [], candidate_passages: [], claims: [], dismissed_lexicon_hits: [] };
-  for (const chunk of chunks) {
-    const res = await callTool({
-      system: PROSECUTOR_SYSTEM_PROMPT,
-      user: prosecutorUserPrompt(chunk.text, chunk.header, hitsText, opts),
-      tool: PROSECUTION_TOOL,
-      model: PROSECUTOR_MODEL,
-      temperature: PROSECUTOR_TEMPERATURE,
-    });
-    const p = (res.input ?? {}) as Partial<Prosecution>;
+  for (const p of perChunk) {
     if (Array.isArray(p.allegations)) merged.allegations.push(...p.allegations);
     if (Array.isArray(p.candidate_passages)) merged.candidate_passages.push(...p.candidate_passages);
     if (Array.isArray(p.claims)) merged.claims.push(...p.claims);
@@ -465,7 +497,10 @@ ${sanitise(fullText)}
 export async function runJudgeOnce(
   fullText: string,
   allegations: ProsecutorAllegation[],
+  runIndex = 0,
+  timings?: StageTiming[],
 ): Promise<{ judgement: Judgement; model: string; meta: { stop_reason?: string; usage?: Record<string, unknown> } }> {
+  const t0 = Date.now();
   const res = await callTool({
     system: JUDGE_SYSTEM_PROMPT,
     user: judgeUserPrompt(fullText, allegations),
@@ -473,7 +508,11 @@ export async function runJudgeOnce(
     model: JUDGE_MODEL,
     fallbackModel: JUDGE_FALLBACK_MODEL,
     temperature: 0,
+    maxTokens: JUDGE_MAX_TOKENS,
   });
+  const ms = Date.now() - t0;
+  console.log(`[pts] stage=judge run=${runIndex + 1} model=${res.meta.model} ms=${ms}`);
+  timings?.push({ stage: "judge", run: runIndex + 1, ms });
   return { judgement: res.input as Judgement, model: res.meta.model, meta: { stop_reason: res.meta.stop_reason, usage: res.meta.usage } };
 }
 
@@ -657,22 +696,46 @@ export async function assessTwoPass(
   const hitsText = formatHitsForPrompt(hits);
   const chunks = bodyChunks.map((c) => ({ text: c.text, header }));
 
-  // Prosecutor: N independent runs at temperature 0.7 (each over every chunk).
-  const runs: Prosecution[] = [];
-  for (let r = 0; r < PROSECUTOR_RUNS; r++) {
-    runs.push(await runProsecutorOnce(chunks, hitsText, opts));
-  }
+  const startTime = opts.startTime ?? Date.now();
+  const timeBudgetMs = opts.timeBudgetMs ?? TIME_BUDGET_MS;
+  const deadline = startTime + timeBudgetMs;
+  const timings: StageTiming[] = [];
+
+  // Prosecutor: N independent runs at temperature 0.7 (each over every chunk),
+  // all runs and all chunks in parallel. Merge order is by run index.
+  const runsPromise = Promise.all(
+    Array.from({ length: PROSECUTOR_RUNS }, (_, r) => runProsecutorOnce(chunks, hitsText, opts, r, timings)),
+  );
+  const runs = await withDeadline(runsPromise, deadline - Date.now(), "prosecutor", startTime).catch((e) => {
+    if (e && typeof e === "object" && !(e as { stage?: string }).stage) (e as { stage?: string }).stage = "prosecutor";
+    throw e;
+  });
   const { merged, candidate_passages, claims, dismissed } = mergeRuns(runs);
 
-  // Judge: precision pass on the FULL text (never chunked).
-  const judgements: Judgement[] = [];
-  let judgeModel = JUDGE_MODEL;
-  for (let r = 0; r < JUDGE_RUNS; r++) {
-    const jr = await runJudgeOnce(fullText, merged);
-    judgements.push(jr.judgement);
-    judgeModel = jr.model;
-  }
-  const judgement = combineJudgements(judgements);
+  // If the prosecutor stage already burned >60% of the budget, do not spend it on
+  // multiple judge runs — run the judge exactly once on the merged allegations.
+  const prosecutorElapsed = Date.now() - startTime;
+  const judgeRunCount = prosecutorElapsed > 0.6 * timeBudgetMs ? 1 : JUDGE_RUNS;
+
+  // Judge: precision pass on the FULL text (never chunked). Raced against the
+  // remaining budget so the platform never kills the function first.
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) throw new TimeBudgetError("judge", Date.now() - startTime);
+  const judgePromise = (async () => {
+    const out: { judgements: Judgement[]; model: string } = { judgements: [], model: JUDGE_MODEL };
+    for (let r = 0; r < judgeRunCount; r++) {
+      const jr = await runJudgeOnce(fullText, merged, r, timings);
+      out.judgements.push(jr.judgement);
+      out.model = jr.model;
+    }
+    return out;
+  })();
+  const judgeOut = await withDeadline(judgePromise, remaining, "judge", startTime).catch((e) => {
+    if (e && typeof e === "object" && !(e as { stage?: string }).stage) (e as { stage?: string }).stage = "judge";
+    throw e;
+  });
+  const judgement = combineJudgements(judgeOut.judgements);
+  const judgeModel = judgeOut.model;
 
   const { consistency, note } = computeConsistency(merged, judgement.verdicts ?? [], PROSECUTOR_RUNS);
   const assessment = buildAssessment({ merged, judgement, candidate_passages, claims, dismissed, hits });
@@ -699,10 +762,11 @@ export async function assessTwoPass(
     prosecutor_model: PROSECUTOR_MODEL,
     judge_model: judgeModel,
     prosecutor_runs: PROSECUTOR_RUNS,
-    judge_runs: JUDGE_RUNS,
+    judge_runs: judgeRunCount,
     prosecutor_temperature: PROSECUTOR_TEMPERATURE,
     chunking_used: chunkingUsed,
     normalisation_event_count: normalisation_events.length,
+    stage_timings: timings,
   };
 
   return { assessment, audit, consistency, consistencyNote: note, provenanceExtra };

@@ -32,6 +32,10 @@ export type AssessOptions = {
   languageHint?: string | null;
   runId?: string | null;
   lexiconHits?: LexiconHit[];
+  /** Wall-clock start (Date.now()) of the request, for the two-pass time budget. */
+  startTime?: number;
+  /** Total time budget in ms for the two-pass path. */
+  timeBudgetMs?: number;
 };
 
 function validateAssessment(assessment: unknown, stopReason?: string): Assessment {
@@ -208,7 +212,12 @@ async function produceAssessment(
     const r = await assessTwoPass(
       parts,
       text,
-      { designation: opts.designation ?? parts.designationHint ?? undefined, languageHint: opts.languageHint },
+      {
+        designation: opts.designation ?? parts.designationHint ?? undefined,
+        languageHint: opts.languageHint,
+        startTime: opts.startTime,
+        timeBudgetMs: opts.timeBudgetMs,
+      },
       hits,
     );
     return {

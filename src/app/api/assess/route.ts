@@ -1,11 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { extractFromUrl, fromRawText } from "@/lib/extract";
 import { scoreFromParts } from "@/lib/assess";
-import { MIN_BODY_CHARS } from "@/lib/rubric";
+import { TimeBudgetError } from "@/lib/provider";
+import { MIN_BODY_CHARS, TIME_BUDGET_MS } from "@/lib/rubric";
 import type { ArticleParts, Designation } from "@/lib/types";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+// Allow up to 300s. NOTE: on Vercel this requires **Fluid compute** to be enabled
+// for the project (Settings → Functions); on the Hobby plan without Fluid the hard
+// cap is 60s, so also lower PTS_TIME_BUDGET_MS / PTS_PROSECUTOR_RUNS accordingly.
+export const maxDuration = 300;
 
 const DESIGNATIONS: Designation[] = [
   "ARTICLE",
@@ -24,6 +28,7 @@ type Body = {
 };
 
 export async function POST(req: NextRequest) {
+  const start = Date.now();
   let payload: Body;
   try {
     payload = await req.json();
@@ -98,6 +103,8 @@ export async function POST(req: NextRequest) {
     const result = await scoreFromParts(parts, {
       designation,
       languageHint: language,
+      startTime: start,
+      timeBudgetMs: TIME_BUDGET_MS,
     });
 
     // Production safety: no real provider → no PTS result (never 100/100).
@@ -132,12 +139,24 @@ export async function POST(req: NextRequest) {
           lexicon_hits: result.score.lexicon_hits,
           org_resolutions: result.score.org_resolutions,
           raw_assessment: result.assessment,
+          elapsed_ms: Date.now() - start,
+          stage_timings: result.score.provenance?.stage_timings ?? [],
         },
       });
     }
 
     return NextResponse.json(result);
   } catch (e) {
+    const elapsed_ms = Date.now() - start;
+    // Never let the platform kill the function and emit a plain-text error page:
+    // every failure returns JSON tagged with the stage and elapsed time.
+    if (e instanceof TimeBudgetError) {
+      return NextResponse.json(
+        { error: "TIME_BUDGET_EXCEEDED", stage: e.stage, elapsed_ms },
+        { status: 504 },
+      );
+    }
+    const stage = (e as { stage?: string })?.stage ?? "scorer";
     const stopReason = (e as { stop_reason?: string })?.stop_reason;
     const isModelError = e instanceof Error && e.name === "ModelError";
     return NextResponse.json(
@@ -146,6 +165,8 @@ export async function POST(req: NextRequest) {
           e instanceof Error
             ? e.message
             : "Assessment failed. Check the server logs.",
+        stage,
+        elapsed_ms,
         ...(stopReason ? { stop_reason: stopReason } : {}),
       },
       { status: isModelError ? 502 : 500 },

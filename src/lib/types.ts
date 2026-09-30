@@ -334,6 +334,15 @@ export type Provenance = {
   prosecutor_temperature?: number;
   chunking_used?: boolean;
   normalisation_event_count?: number;
+  /** Per-stage wall-clock timings (ms) for observability/debug. */
+  stage_timings?: StageTiming[];
+};
+
+export type StageTiming = {
+  stage: "fetch" | "prosecutor" | "judge" | "scorer";
+  run?: number;
+  chunk?: number;
+  ms: number;
 };
 
 /** One of the two independent 100-point scores (PTS-A or PTS-J). */

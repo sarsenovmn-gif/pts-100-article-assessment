@@ -47,10 +47,23 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      const data = await res.json();
+      const raw = await res.text();
+      let data: Record<string, unknown>;
+      try {
+        data = JSON.parse(raw);
+      } catch {
+        // A non-JSON body means a platform-level error page (e.g. a function
+        // timeout), not an application response — surface it as what it is.
+        throw new Error(`Server error (HTTP ${res.status}): ${raw.slice(0, 200)}`);
+      }
       if (!res.ok) {
         if (data.stop_reason) setStopReason(String(data.stop_reason));
-        throw new Error(data.error || "Assessment failed.");
+        const parts = [
+          data.error || "Assessment failed.",
+          data.stage ? `stage: ${data.stage}` : "",
+          typeof data.elapsed_ms === "number" ? `${Math.round((data.elapsed_ms as number) / 1000)}s` : "",
+        ].filter(Boolean);
+        throw new Error(parts.join(" · "));
       }
       setResult(data as AssessResponse);
     } catch (e) {

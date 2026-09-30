@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import {
   ANTHROPIC_VERSION,
+  CALL_TIMEOUT_MS,
   MAX_RETRIES,
   MAX_TOKENS,
   OPENROUTER_BASE_URL,
@@ -9,12 +10,27 @@ import {
 
 export type Provider = "anthropic" | "openrouter" | "mock";
 
+export type Stage = "fetch" | "prosecutor" | "judge" | "scorer";
+
 export class ModelError extends Error {
   stop_reason?: string;
+  stage?: Stage;
   constructor(message: string, stopReason?: string) {
     super(message);
     this.name = "ModelError";
     this.stop_reason = stopReason;
+  }
+}
+
+/** Thrown when the overall time budget is exhausted; surfaced as a 504 JSON. */
+export class TimeBudgetError extends Error {
+  stage: Stage;
+  elapsedMs: number;
+  constructor(stage: Stage, elapsedMs: number) {
+    super(`Time budget exceeded during ${stage} stage after ${elapsedMs} ms.`);
+    this.name = "TimeBudgetError";
+    this.stage = stage;
+    this.elapsedMs = elapsedMs;
   }
 }
 
@@ -39,6 +55,8 @@ export type CallOptions = {
   maxTokens?: number;
   /** Optional fallback model if the primary id is rejected by the API. */
   fallbackModel?: string;
+  /** Per-call abort timeout in ms (defaults to CALL_TIMEOUT_MS). */
+  timeoutMs?: number;
 };
 
 export type CallResult = {
@@ -72,18 +90,24 @@ async function callViaAnthropic(opts: CallOptions): Promise<CallResult> {
   });
 
   const models = [opts.model, opts.fallbackModel].filter(Boolean) as string[];
+  const timeoutMs = opts.timeoutMs ?? CALL_TIMEOUT_MS;
   let lastErr: unknown;
   for (const model of models) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      const response = await client.messages.create({
-        model,
-        max_tokens: opts.maxTokens ?? MAX_TOKENS,
-        temperature: opts.temperature ?? TEMPERATURE,
-        system: opts.system,
-        messages: [{ role: "user", content: opts.user }],
-        tools: [opts.tool as unknown as Anthropic.Tool],
-        tool_choice: { type: "tool", name: opts.tool.name },
-      });
+      const response = await client.messages.create(
+        {
+          model,
+          max_tokens: opts.maxTokens ?? MAX_TOKENS,
+          temperature: opts.temperature ?? TEMPERATURE,
+          system: opts.system,
+          messages: [{ role: "user", content: opts.user }],
+          tools: [opts.tool as unknown as Anthropic.Tool],
+          tool_choice: { type: "tool", name: opts.tool.name },
+        },
+        { signal: controller.signal },
+      );
       console.log(
         `[pts] anthropic model=${response.model} stop_reason=${response.stop_reason} usage=${JSON.stringify(response.usage ?? {})}`,
       );
@@ -109,6 +133,8 @@ async function callViaAnthropic(opts: CallOptions): Promise<CallResult> {
       const msg = e instanceof Error ? e.message : String(e);
       if (model !== models[models.length - 1] && isBadModel(status, msg)) continue;
       throw e;
+    } finally {
+      clearTimeout(timer);
     }
   }
   throw lastErr instanceof Error ? lastErr : new ModelError("Anthropic call failed.");
@@ -126,6 +152,7 @@ type OpenRouterResponse = {
 async function callViaOpenRouter(opts: CallOptions): Promise<CallResult> {
   const apiKey = (process.env.OPENROUTER_API_KEY || "").trim();
   const models = [opts.model, opts.fallbackModel].filter(Boolean) as string[];
+  const timeoutMs = opts.timeoutMs ?? CALL_TIMEOUT_MS;
 
   for (const model of models) {
     const payload = {
@@ -148,16 +175,31 @@ async function callViaOpenRouter(opts: CallOptions): Promise<CallResult> {
     let lastError = "";
     let badModel = false;
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-      const res = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-          "HTTP-Referer": "https://pts-100.local",
-          "X-Title": "PTS Publication Trust Score",
-        },
-        body: JSON.stringify(payload),
-      });
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      let res: Response;
+      try {
+        res = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://pts-100.local",
+            "X-Title": "PTS Publication Trust Score",
+          },
+          body: JSON.stringify(payload),
+          signal: controller.signal,
+        });
+      } catch (e) {
+        lastError = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+        if (attempt < MAX_RETRIES) {
+          await new Promise((r) => setTimeout(r, Math.min(2 ** attempt * 1000, 20000)));
+          continue;
+        }
+        throw new ModelError(`OpenRouter request failed (${lastError}).`);
+      } finally {
+        clearTimeout(timer);
+      }
 
       if ([429, 500, 502, 503, 529].includes(res.status)) {
         lastError = `HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`;
