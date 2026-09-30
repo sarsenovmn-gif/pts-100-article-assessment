@@ -1,7 +1,26 @@
 import { extract } from "@extractus/article-extractor";
-import type { ArticleParts } from "./types";
+import type { ArticleParts, Designation } from "./types";
 
 const MIN_BODY_CHARS = 300;
+
+const OPINION_MARKERS = [
+  "opinion", "op-ed", "op ed", "oped", "editorial", "commentisfree",
+  "/comment/", "/comment-", "meinung", "opinie", "nazory", "názory", "opinión",
+];
+
+/** Detect an opinion/editorial piece from the URL path and metadata. */
+export function detectOpinionDesignation(
+  url: string | null,
+  headline?: string | null,
+  byline?: string | null,
+  standfirst?: string | null,
+): Designation | null {
+  const hay = [url, headline, byline, standfirst]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  return OPINION_MARKERS.some((m) => hay.includes(m)) ? "OPINION" : null;
+}
 
 function stripHtml(html: string | null | undefined): string {
   if (!html) return "";
@@ -57,17 +76,22 @@ export async function extractFromUrl(url: string): Promise<ArticleParts> {
       "Extracted body is very short (paywall, login wall or a social-media page?). Paste the text instead.";
   }
 
+  const headline = parsed.title?.trim() || "";
+  const standfirst = parsed.description?.trim() || null;
+  const byline = parsed.author?.trim() || null;
+
   return {
     url: parsed.url ?? url,
     source,
-    headline: parsed.title?.trim() || "",
-    standfirst: parsed.description?.trim() || null,
-    byline: parsed.author?.trim() || null,
+    headline,
+    standfirst,
+    byline,
     published: parsed.published?.trim() || null,
     body,
     extractor,
     bodyChars: body.length,
     warning,
+    designationHint: detectOpinionDesignation(url, headline, byline, standfirst),
   };
 }
 
@@ -88,6 +112,7 @@ export function fromRawText(
     extractor: "manual",
     bodyChars: body.length,
     warning: null,
+    designationHint: null,
   };
 }
 

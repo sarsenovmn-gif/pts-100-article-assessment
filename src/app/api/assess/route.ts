@@ -7,7 +7,13 @@ import type { ArticleParts, Designation } from "@/lib/types";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-const DESIGNATIONS: Designation[] = ["ARTICLE", "POST", "DOCUMENTARY", "SATIRE"];
+const DESIGNATIONS: Designation[] = [
+  "ARTICLE",
+  "OPINION",
+  "POST",
+  "DOCUMENTARY",
+  "SATIRE",
+];
 
 type Body = {
   url?: string;
@@ -94,6 +100,19 @@ export async function POST(req: NextRequest) {
       languageHint: language,
     });
 
+    // Production safety: no real provider → no PTS result (never 100/100).
+    if (result.score.analysis_unavailable) {
+      return NextResponse.json(
+        {
+          error: "ANALYSIS_UNAVAILABLE",
+          detail:
+            result.score.note ||
+            "No model provider is configured, so no PTS result can be produced.",
+        },
+        { status: 503 },
+      );
+    }
+
     const debug =
       req.nextUrl.searchParams.get("debug") === "1" ||
       process.env.PTS_DEBUG === "1";
@@ -110,6 +129,8 @@ export async function POST(req: NextRequest) {
                 : "mock",
           stop_reason: result.score.provenance?.stop_reason,
           usage: result.score.provenance?.usage,
+          lexicon_hits: result.score.lexicon_hits,
+          org_resolutions: result.score.org_resolutions,
           raw_assessment: result.assessment,
         },
       });
