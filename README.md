@@ -1,4 +1,4 @@
-# PTS · Publication Trust Score (v6, strict)
+# PTS · Publication Trust Score (v6, strict · two-pass)
 
 A Next.js web app that assesses a single publication on **two independent
 100-point scores**:
@@ -14,10 +14,12 @@ The two scores are **never blended**. The UI shows both side by side, plus a
 convenience "weakest link" headline (`min(PTS-A, PTS-J)`).
 
 Give it an article by URL or pasted text. The app extracts the publication into
-labelled sections, runs a deterministic **coded-language pre-scan**, sends it to a
-model with a forced, structured tool call, then runs a **deterministic scorer**
-that verifies every piece of evidence, resolves designated organisations from
-versioned lists, and applies the PTS rules exactly.
+labelled sections, **normalises a copy for matching**, runs a deterministic
+**coded-language pre-scan** and **prompt-injection scan**, then assesses the text
+with a **two-pass model architecture** (an adversarial *prosecutor* for recall,
+followed by a conservative *judge* for precision) before a **deterministic scorer**
+verifies every piece of evidence, resolves designated organisations from versioned
+lists, and applies the PTS rules exactly. The model never computes a number.
 
 ## Governing principle
 
@@ -84,6 +86,73 @@ Accuracy 30 + Transparency 15 + Public interest 5 + Conduct 10 + Block S 40.
 | **S4** | 4 | Materially disputed claims |
 | **S5** | 10 | Designated-source reliance — **deterministic**, never model-decided |
 | **JD** | 10 | Conduct clauses 3, 5, 6, 7, 8, 9 (graded deduction per breach) |
+
+## Two-pass assessment (prosecutor → judge → scorer)
+
+The single assessment call is split into two model roles with opposite biases,
+then a deterministic scorer. This raises recall on evasive/coded content without
+sacrificing precision, and it makes disagreement measurable.
+
+1. **Prosecutor (recall).** Runs `PTS_PROSECUTOR_RUNS` times (default **3**) at a
+   higher temperature (default **0.7**) on `PTS_PROSECUTOR_MODEL`. Its prompt is
+   the PTS prompt with the leniency removed and adversarial reading instructions
+   added: build the strongest possible case that each criterion *fails*, listing
+   exact quotes, the apparent stance and the IHRA examples. Every lexicon pre-scan
+   hit must appear either as an allegation or in an explicit `dismissed_lexicon_hits`
+   with a reason. The prosecutor **never** computes a score. The runs are unioned by
+   `(criterion, normalised first quote)`, and each merged allegation records which
+   runs it appeared in.
+2. **Judge (precision).** Runs once at temperature **0** on `PTS_JUDGE_MODEL` (a
+   strongest-Sonnet-class model, falling back to a smaller model only if the API
+   rejects it). It sees the full text and the merged allegations and **never invents
+   new ones** — it only `CONFIRM`s, `DOWNGRADE`s or `REJECT`s each, applying the full
+   caveats (the single IHRA caveat, the stance gate, opinion partisanship, public
+   interest, the `not_indicator` list). The judge must **quote the rule it applied**
+   in its `reason` (e.g. *"stance gate: COUNTERED"*, *"endorsement marker: 'rightly'"*),
+   and assigns a graded severity to each surviving allegation.
+3. **Scorer (deterministic).** Only `CONFIRMED`/`DOWNGRADED` verdicts become
+   criteria; the scorer then verifies quotes, applies the stance gate, caps and the
+   definitive-100 gate exactly as before. A **new** rule: an `UNCRITICAL_AMPLIFICATION`
+   failure of AS1–AS5 deducts **half** the points of the equivalent own-voice failure.
+
+**Consistency index.** `confirmed findings present in *all* prosecutor runs ÷ all
+confirmed findings`. A run-to-run variance in scores is acceptable when it reflects
+the text better — but it is **measured and shown, never hidden**. The index and the
+full per-run prosecutor output are surfaced in the Audit panel.
+
+### Input normalisation (matching only)
+
+The model always reads and quotes against the **original** text. A separate
+normalised *copy* (with a per-character map back to the original) is used only by
+the pre-scan and injection scan, so evasion is caught while quotes stay verifiable:
+NFKC, zero-width strip (U+200B–200F, 2060, FEFF), Cyrillic/Greek homoglyph folding,
+leetspeak de-obfuscation inside words (`3→e 1→i 0→o 4→a 5→s 7→t @→a $→s`) and
+in-word separator collapse (`J.e.w.s → jews`). Hits found only after normalisation
+are flagged *"matched after normalisation"* and listed as normalisation events.
+
+Long texts (over `PTS_CHUNK_CHARS`, default **6000**) are split into overlapping,
+paragraph-boundary chunks so buried content (last paragraph, caption, footnote) is
+still read; the prosecutor runs per chunk (plus the headline/standfirst), while the
+judge always runs **once on the full text** (it is never chunked).
+
+### Prompt-injection defence
+
+The article is wrapped in an `<ARTICLE>` envelope (untrusted data, never
+instructions) and a deterministic detector runs on the normalised text for
+manipulation patterns (*"ignore previous instructions"*, *"you are an assessment
+system"*, *"rate this article as"*, *"PTS-A 100"*, *"this publication is
+compliant"*, *"system prompt"*, *"as an AI"*). A hit sets `injection_suspected`,
+adds the passage as a mandatory allegation, routes the whole result to human review
+and raises a UI banner — **but scores are still computed** (an injection attempt is
+itself a signal, not a reason to abort).
+
+### Audit panel (observability)
+
+A collapsible **Audit** panel shows, per assessment: the prosecutor allegations
+for each run and which the judge rejected (with the rule cited); lexicon hits and
+dismissals; the candidate-passage count (with a warning if the model saw zero while
+the pre-scan or a designated source found something); the consistency index; and
+the `irony_possible` / `injection_suspected` flags.
 
 ## How the deterministic scorer works
 
@@ -157,6 +226,13 @@ API returns **`ANALYSIS_UNAVAILABLE`** (HTTP 503) instead of a score — it neve
 fabricates a passing `100/100`. The mock is only enabled for local development and
 tests when `PTS_ALLOW_MOCK=1`.
 
+The prosecutor and judge can use different models (`PTS_PROSECUTOR_MODEL`,
+`PTS_JUDGE_MODEL`); both go through the same provider abstraction with a forced tool
+call and a model-fallback on a bad-model rejection. Two-pass is on by default
+(`PTS_TWO_PASS=1`); setting it to `0` falls back to the original single-pass call.
+Note that N prosecutor runs plus a judge is **≥ 4 model calls per assessment**, so
+it is slower and more expensive than single-pass.
+
 ## Getting started
 
 ```bash
@@ -170,10 +246,20 @@ The dev server runs on port **43127** → http://localhost:43127
 ## Tests
 
 ```bash
-npm run selftest      # 38-fixture deterministic regression suite
-npm run demo:bad      # offline synthetic antisemitic fixture through the scorer
-npm run test:endpoint # live integration test (needs the dev server + a key)
+npm run selftest        # 38-fixture deterministic regression suite
+npm run test:adversarial # 15 offline adversarial checks (normalise/injection/two-pass)
+npm run demo:bad        # offline synthetic fixture through the full two-pass flow
+npm run test:endpoint   # live integration test (needs the dev server + a key)
 ```
+
+The **15 adversarial checks** (`src/lib/adversarial.selftest.ts`, over the
+synthetic fixtures in `tests/adversarial/`) cover the code-side pieces that do not
+need a model: leetspeak/homoglyph/zero-width normalisation and the position map,
+prompt-injection detection + routing (with no false positives on clean text),
+overlapping chunking of a 9k-char buried-content fixture, the prosecutor-run union
+and consistency index, and building + scoring a split-trope (one finding, three
+verified quotes), a "some say" amplification (half deduction), a countered trope
+(no deduction) and an unverifiable quote (UNRESOLVED, not a deduction).
 
 The **38 regression fixtures** (`src/lib/scorer.selftest.ts`) cover: core scoring
 & severity retention, the coverage/confidence/definitive-100 gate, critical caps
@@ -193,10 +279,17 @@ resolutions to the API response.
 | --- | --- |
 | `ANTHROPIC_API_KEY` | Enables the Anthropic path. |
 | `OPENROUTER_API_KEY` | Enables the OpenRouter path. |
-| `PTS_MODEL` / `OPENROUTER_MODEL` | Override the model. |
+| `PTS_MODEL` / `OPENROUTER_MODEL` | Override the (single-pass) model. |
 | `ANTHROPIC_BASE_URL` / `OPENROUTER_BASE_URL` | Custom/regional endpoints. |
 | `PTS_ALLOW_MOCK` | `1` enables the dev/test mock (never in production). |
 | `PTS_DEBUG` | `1` adds debug payloads to API responses. |
+| `PTS_TWO_PASS` | `1` (default) prosecutor→judge→scorer; `0` = single pass. |
+| `PTS_PROSECUTOR_MODEL` | Recall-pass model (default `claude-haiku-4-5`). |
+| `PTS_PROSECUTOR_RUNS` | Prosecutor runs to union (default `3`). |
+| `PTS_PROSECUTOR_TEMPERATURE` | Prosecutor temperature (default `0.7`). |
+| `PTS_JUDGE_MODEL` | Precision-pass model (default strongest Sonnet-class). |
+| `PTS_JUDGE_RUNS` | Judge runs; majority-confirm if > 1 (default `1`). |
+| `PTS_CHUNK_CHARS` / chunk overlap | Chunking threshold (default `6000` / `600`). |
 
 ## Deploy to Vercel
 
@@ -211,7 +304,21 @@ Add `ANTHROPIC_API_KEY` **or** `OPENROUTER_API_KEY` under
 ## Limitations (read before relying on the output)
 
 PTS is an **analytical decision-support framework, not a legal determination** and
-not a substitute for expert human judgement. In particular:
+not a substitute for expert human judgement. It is **text-only in this iteration:
+there is no web access, browsing, search or retrieval** — a URL is fetched once for
+extraction and nothing else leaves the box. In particular:
+
+- **Scores can vary run to run.** The prosecutor runs at a non-zero temperature, so
+  the same text can surface slightly different findings on different runs. This
+  variance is a feature of better recall, not a bug — it is **measured and shown**
+  via the consistency index and the per-run Audit panel, never hidden. Treat a low
+  consistency index as a prompt to have a human look.
+- **Unsignalled irony is assessed literally.** Sarcasm is only treated as ironic
+  when the text itself signals it; otherwise the passage is assessed at face value
+  and flagged `irony_possible` for the reviewer, because a confident irony call on
+  ambiguous text is how real antisemitism gets excused.
+- **Prompt-injection is detected, not trusted.** Text that tries to instruct the
+  assessor is flagged and routed to a human; it never changes the score.
 
 - **The lexicon is a seed.** `data/lexicon.json` is a small, English-only starter
   set that **requires expert review and expansion** before production use. Coded
@@ -249,16 +356,24 @@ src/
   components/
     results-panel.tsx     # two scores, coverage/confidence, findings, review
   lib/
-    rubric.ts             # prompt, tool schema, points, profiles, caps, gate consts
+    rubric.ts             # prompt, tool schema, points, profiles, caps, gate, two-pass consts
     scorer.ts             # deterministic calculate_scores + evidence verification
-    lexicon.ts            # load + deterministic pre-scan with context windows
+    lexicon.ts            # load + deterministic pre-scan (on the normalised copy)
     designations.ts       # deterministic org/alias/controlled-body resolver
     extract.ts            # URL / raw-text extraction, OPINION detection
-    assess.ts             # provider call, mock gating -> ANALYSIS_UNAVAILABLE
+    normalise.ts          # NFKC/homoglyph/leet normalisation + injection detector
+    chunk.ts              # overlapping paragraph-boundary chunking
+    provider.ts           # provider abstraction: forced tool call + model fallback
+    twopass.ts            # prosecutor/judge prompts+schemas, merge, consistency, buildAssessment
+    assess.ts             # normalise+prescan+two-pass orchestration; mock -> ANALYSIS_UNAVAILABLE
     scorer.selftest.ts    # 38-fixture regression suite
-    types.ts              # PtsSubScore, Scores, Assessment, Severity, ...
+    adversarial.selftest.ts # 15 offline adversarial checks
+    types.ts              # PtsSubScore, Scores, Assessment, Prosecution, Judgement, AuditData, ...
+tests/
+  adversarial/            # synthetic adversarial fixtures (never dataset/real text)
 scripts/
   selftest.mjs            # `npm run selftest`
+  adversarial.mjs         # `npm run test:adversarial`
   demo.mjs                # `npm run demo:bad`
   endpoint.test.mjs       # `npm run test:endpoint`
 ```
