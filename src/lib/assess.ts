@@ -96,8 +96,11 @@ Workflow:
    Judaism, Israel, Zionism, the Holocaust or antisemitism (empty array if none).
 2. Return EXACTLY one criteria object for each of: ${MODEL_CRITERION_IDS.join(", ")}.
    Use a graded severity (PASS/MINOR/MODERATE/MAJOR/SEVERE/UNRESOLVED/NOT_APPLICABLE);
-   never turn uncertainty or "no violation found" into a default PASS; a PASS
-   rationale must state what was checked.
+   a PASS rationale must state what was checked. AS1-AS6 are always applicable: if
+   the piece has no Jewish/Israel/antisemitism content, that is a PASS (you checked
+   and found none), NOT NOT_APPLICABLE. Reserve NOT_APPLICABLE for criteria that
+   structurally cannot apply (e.g. J8/J9/J7/J10/J3 with no commercial/financial/
+   ownership/corrections dimension). Do not turn genuine uncertainty into a PASS.
 3. Adjudicate every lexicon hit below in lexicon_adjudications[].
 4. Run the Sharansky 3D test for any Israel/Zionism discourse in three_d[].
 5. Extract material factual claims into claims[], copying source names EXACTLY.
