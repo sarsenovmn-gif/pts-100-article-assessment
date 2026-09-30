@@ -1,6 +1,7 @@
 import {
   ALLOW_MOCK,
   ASSESSMENT_TOOL,
+  HARDENING_ENABLED,
   MODEL,
   MODEL_CRITERION_IDS,
   PROMPT_VERSION,
@@ -215,6 +216,7 @@ async function produceAssessment(
         designation: opts.designation ?? parts.designationHint ?? undefined,
         languageHint: opts.languageHint,
         signal: opts.signal,
+        hardening: HARDENING_ENABLED,
       },
       hits,
     );
@@ -261,6 +263,7 @@ export async function scorePublication(
     consistencyNote: art.consistencyNote,
     audit: art.audit,
     provenanceExtra: art.provenanceExtra,
+    hardening: HARDENING_ENABLED,
   });
   if (mocked) score.mocked = true;
   return { assessment: art.assessment, score, mocked, unavailable: false };
@@ -294,6 +297,7 @@ export async function scoreFromParts(
     consistencyNote: art.consistencyNote,
     audit: art.audit,
     provenanceExtra: art.provenanceExtra,
+    hardening: HARDENING_ENABLED,
   });
   if (mocked) score.mocked = true;
 

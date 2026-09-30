@@ -10,6 +10,9 @@ import {
   CAP_SOURCING_J,
   CONFIDENCE_HIGH,
   CONFIDENCE_MEDIUM,
+  CONSISTENCY_HIGH_MIN,
+  CONSISTENCY_LOW_SCORE_CAP,
+  CONSISTENCY_LOW_THRESHOLD,
   J_CORE_POINTS,
   J_PROFILES,
   JD_DEDUCTION_BY_SEVERITY,
@@ -19,6 +22,7 @@ import {
   MIN_COVERAGE_FOR_100,
   MODEL,
   NEGATIVE_SEVERITIES,
+  occurrenceFactor,
   type PointDef,
   POINTS_OF,
   PROMPT_VERSION,
@@ -26,6 +30,8 @@ import {
   S_POINTS,
   S_PROFILES,
   SEVERITY_RETENTION,
+  SEVERITY_SCORE_CAP,
+  STANCE_PENALTY_MULTIPLIER,
   tierA,
   tierJ,
 } from "./rubric";
@@ -184,6 +190,12 @@ function isNegative(sev: Severity): boolean {
   return (NEGATIVE_SEVERITIES as string[]).includes(sev);
 }
 
+const SEV_ORDER: Severity[] = ["MINOR", "MODERATE", "MAJOR", "SEVERE"];
+function rankSev(sev: Severity): number {
+  const i = SEV_ORDER.indexOf(sev);
+  return i < 0 ? -1 : i;
+}
+
 function confidenceBand(value: number, unresolvedCount: number): ConfidenceBand {
   let band: ConfidenceBand =
     value >= CONFIDENCE_HIGH ? "HIGH" : value >= CONFIDENCE_MEDIUM ? "MEDIUM" : "LOW";
@@ -203,6 +215,8 @@ type EvalConfig = {
   ampHalf: Set<string>;
   reviewReason: (cid: string) => string | null;
   capOf: (cid: string, item: CriterionAssessment, stance: string, sev: Severity) => number | null;
+  /** Part 2 hardening: apply stance multiplier + per-occurrence penalties. */
+  hardening: boolean;
 };
 
 type EvalResult = {
@@ -325,14 +339,21 @@ function evaluateScore(
     }
 
     const retention = SEVERITY_RETENTION[sev] ?? 0;
-    let earnedPts = points * retention;
-    let pointsLost = points - earnedPts;
+    let pointsLost = points - points * retention;
     // Amplification half-deduction (Part A3): AS1-AS5 lose only half when the
     // failing passage is UNCRITICAL_AMPLIFICATION rather than the outlet's own voice.
     if (cfg.ampHalf.has(cid) && stance === "UNCRITICAL_AMPLIFICATION") {
       pointsLost = pointsLost / 2;
-      earnedPts = points - pointsLost;
     }
+    // Part 2 hardening: own-voice assertions hurt more (stance multiplier) and a
+    // pattern repeated across passages is penalised per occurrence with a
+    // diminishing coefficient (penalties add up; no saturation per criterion).
+    if (cfg.hardening) {
+      const occ = Math.max(1, item.occurrences ?? 1);
+      const stanceMult = STANCE_PENALTY_MULTIPLIER[stance] ?? 1.0;
+      pointsLost = pointsLost * occurrenceFactor(occ) * stanceMult;
+    }
+    const earnedPts = points - pointsLost; // may go negative; clamped per axis
     r.earned += earnedPts;
     r.assessed += points;
     r.findings.push({
@@ -573,14 +594,36 @@ function buildSubScore(args: {
   conductBreaches?: ConductBreach[];
   headlineAssessed: boolean;
   tier: (s: number | null) => string;
+  hardening: boolean;
+  axis: "A" | "J";
 }): PtsSubScore {
   const {
     isJ, earned, assessed, applicable, findings, rejected, unresolved,
     notApplicable, review, caps, capReasons, materialConf, passConf,
-    unresolvedCount, conductBreaches, headlineAssessed, tier,
+    unresolvedCount, conductBreaches, headlineAssessed, tier, hardening, axis,
   } = args;
 
-  const raw = assessed > 0 ? pyRound((100 * earned) / assessed) : null;
+  // Part 2: the WORST-severity finding on the axis implies a score ceiling.
+  if (hardening) {
+    const sevs: Severity[] = [
+      ...findings.map((f) => f.severity),
+      ...(conductBreaches ?? []).map((b) => b.severity),
+    ].filter((s) => (NEGATIVE_SEVERITIES as string[]).includes(s));
+    if (sevs.length) {
+      const worst = sevs.reduce((a, b) => (rankSev(b) > rankSev(a) ? b : a));
+      const sevCap = SEVERITY_SCORE_CAP[axis][worst];
+      if (sevCap !== undefined && sevCap !== null) {
+        caps.push(sevCap);
+        capReasons.push(
+          `worst finding severity ${worst} caps ${axis === "A" ? "PTS-A" : "PTS-J"} at ${sevCap}`,
+        );
+      }
+    }
+  }
+
+  // Penalties can add up past a single criterion's weight; never below zero.
+  const earnedClamped = Math.max(0, earned);
+  const raw = assessed > 0 ? pyRound((100 * earnedClamped) / assessed) : null;
   const cap = caps.length ? Math.min(...caps) : null;
   const capApplied = cap !== null && raw !== null;
   const final = capApplied ? Math.min(raw, cap) : raw;
@@ -618,7 +661,7 @@ function buildSubScore(args: {
     raw_before_cap: raw,
     cap_applied: capApplied,
     cap_reason: capApplied ? capReasons[caps.indexOf(cap!)] ?? capReasons[0] ?? null : null,
-    earned: Math.round(earned * 100) / 100,
+    earned: Math.round(earnedClamped * 100) / 100,
     possible: assessed,
     applicable,
     coverage_pct: coveragePct,
@@ -662,6 +705,11 @@ export type ScoreOptions = {
   consistencyNote?: string;
   audit?: AuditData;
   provenanceExtra?: Partial<Provenance>;
+  /**
+   * Part 2 scoring hardening. Off by default so the raw-arithmetic unit tests
+   * stay stable; the production path (assess.ts) passes HARDENING_ENABLED.
+   */
+  hardening?: boolean;
 };
 
 export function calculate_scores(
@@ -671,6 +719,7 @@ export function calculate_scores(
 ): Scores {
   const warnings: string[] = [];
   const { runId, lexiconHits = [] } = options;
+  const hardening = options.hardening ?? false;
 
   let desig = (options.designation || assessment.designation || "ARTICLE")
     .toString()
@@ -755,6 +804,7 @@ export function calculate_scores(
         (sev === "MAJOR" || sev === "SEVERE")
           ? CAP_CRITICAL_A
           : null,
+      hardening,
     },
     criteria,
     articleText,
@@ -775,6 +825,8 @@ export function calculate_scores(
     unresolvedCount: a.unresolvedCount,
     headlineAssessed: true,
     tier: tierA,
+    hardening,
+    axis: "A",
   });
 
   // ---- PTS-J ----
@@ -790,6 +842,7 @@ export function calculate_scores(
         if (cid === "S1" && sev === "SEVERE") return CAP_SOURCING_J;
         return null;
       },
+      hardening,
     },
     criteria,
     articleText,
@@ -856,6 +909,8 @@ export function calculate_scores(
     conductBreaches,
     headlineAssessed,
     tier: tierJ,
+    hardening,
+    axis: "J",
   });
 
   // Prompt-injection routing (Part D): scores are still computed, but the whole
@@ -865,6 +920,14 @@ export function calculate_scores(
     for (const q of [pts_a.human_review, pts_j.human_review]) {
       if (!q.some((e) => e.criterion === "INJECTION")) q.push({ criterion: "INJECTION", reason });
     }
+  }
+
+  // Consistency governance (Part 2): a low cross-run agreement is a reliability
+  // signal — it forces LOW confidence, a score ceiling and a human-review flag,
+  // and HIGH confidence is only permitted above CONSISTENCY_HIGH_MIN.
+  if (hardening) {
+    applyConsistencyGovernance(pts_a, options.consistency, tierA);
+    applyConsistencyGovernance(pts_j, options.consistency, tierJ);
   }
 
   const aDisp = pts_a.displayed_score;
@@ -975,6 +1038,33 @@ function applyLexiconOverride(
     }
   }
   a.reviewQueue = dedupeReview(a.reviewQueue);
+}
+
+function applyConsistencyGovernance(
+  sub: PtsSubScore,
+  consistency: number | null | undefined,
+  tier: (s: number | null) => string,
+): void {
+  if (consistency === null || consistency === undefined) return;
+  if (consistency < CONSISTENCY_HIGH_MIN && sub.confidence === "HIGH") {
+    sub.confidence = "MEDIUM";
+  }
+  if (consistency < CONSISTENCY_LOW_THRESHOLD) {
+    sub.confidence = "LOW";
+    if (sub.displayed_score !== null && sub.displayed_score > CONSISTENCY_LOW_SCORE_CAP) {
+      sub.displayed_score = CONSISTENCY_LOW_SCORE_CAP;
+      sub.tier = tier(sub.displayed_score);
+    }
+    sub.inconclusive = true;
+    const note = `Low prosecutor consistency (${consistency.toFixed(2)} < ${CONSISTENCY_LOW_THRESHOLD}); requires human review.`;
+    sub.inconclusive_reason = sub.inconclusive_reason ? `${sub.inconclusive_reason} ${note}` : note;
+    if (!sub.human_review.some((r) => r.criterion === "CONSISTENCY")) {
+      sub.human_review.push({
+        criterion: "CONSISTENCY",
+        reason: `low prosecutor consistency (${consistency.toFixed(2)}) — requires human review`,
+      });
+    }
+  }
 }
 
 function dedupeReview(q: ReviewEntry[]): ReviewEntry[] {

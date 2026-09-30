@@ -182,6 +182,29 @@ The model never computes the numbers — software does. `calculate_scores`
 - **Critical caps (no stacking — the lowest cap wins)** — AS1/AS4 own-voice
   major/severe caps **PTS-A at 39**; J1 fabrication caps **PTS-J at 39**; S5 rung 1
   or an S1 headline hard rule caps **PTS-J at 59**.
+- **Scoring hardening (Part 2, one tunable block in `rubric.ts`)** — enabled by
+  default on the production path (turn off with `PTS_HARDENING=0`). All knobs live
+  in one commented block so they can be tuned in one place:
+  - **Severity ceilings per axis** (`SEVERITY_SCORE_CAP`) — the worst finding on
+    an axis caps it: `MINOR → 90`, `MODERATE → 80`, `MAJOR → 60`, `SEVERE → 40`
+    (settable independently for PTS-A and PTS-J; the lowest of all caps wins).
+  - **Additive, non-saturating penalties** — deductions add up across findings; a
+    pattern repeated across passages is penalised **per occurrence** with a
+    diminishing coefficient (`OCCURRENCE_DIMINISH = [1.0, 0.5, 0.25]`).
+  - **Stance multiplier** (`STANCE_PENALTY_MULTIPLIER`) — an author asserting a
+    trope in their **own voice** is penalised **×1.5** versus quoting/reporting.
+  - **Judge-floor** — the judge may only DROP a finding with an explicit
+    justification; otherwise it is kept at a severity floor (one level below the
+    prosecutor baseline), and a confirmed finding cannot be downgraded below it.
+  - **Consistency governance** — the cross-run consistency index now *acts*:
+    `< 0.5` forces **LOW** confidence, an **85** score ceiling and a
+    *requires-human-review* flag on both axes; **HIGH** confidence is only allowed
+    at consistency `≥ 0.8`. (This is why a fragile finding that appears in only a
+    minority of prosecutor runs — e.g. `Consistency 0.00` — can no longer sit at a
+    high score with high confidence.)
+  Run `npm run calibrate` for the before/after table over problematic and neutral
+  fixtures (neutral texts, including harsh-but-legitimate criticism of Israeli
+  policy, must stay ≥ 90 on PTS-A).
 - **Coded-language pre-scan + adjudication** — a deterministic, versioned lexicon
   (`data/lexicon.json`) flags coded tropes with a ±200-char context window. **A hit
   is never a deduction by itself** — the model must adjudicate each one in context.
@@ -246,27 +269,37 @@ The dev server runs on port **43127** → http://localhost:43127
 ## Tests
 
 ```bash
-npm run selftest        # 38-fixture deterministic regression suite
-npm run test:adversarial # 15 offline adversarial checks (normalise/injection/two-pass)
+npm run selftest        # 53-fixture deterministic regression suite
+npm run test:adversarial # 18 offline adversarial checks (normalise/injection/two-pass/judge-floor)
+npm run calibrate       # scoring calibration: before/after table + neutral floor >= 90
 npm run demo:bad        # offline synthetic fixture through the full two-pass flow
 npm run test:endpoint   # live integration test (needs the dev server + a key)
 ```
 
-The **15 adversarial checks** (`src/lib/adversarial.selftest.ts`, over the
+The **18 adversarial checks** (`src/lib/adversarial.selftest.ts`, over the
 synthetic fixtures in `tests/adversarial/`) cover the code-side pieces that do not
 need a model: leetspeak/homoglyph/zero-width normalisation and the position map,
 prompt-injection detection + routing (with no false positives on clean text),
 overlapping chunking of a 9k-char buried-content fixture, the prosecutor-run union
-and consistency index, and building + scoring a split-trope (one finding, three
+and consistency index, building + scoring a split-trope (one finding, three
 verified quotes), a "some say" amplification (half deduction), a countered trope
-(no deduction) and an unverifiable quote (UNRESOLVED, not a deduction).
+(no deduction), an unverifiable quote (UNRESOLVED, not a deduction), and the
+Part 2 **judge-floor** (unjustified rejection kept at the floor; justified
+rejection honoured; a confirmed severity below the floor is raised).
 
-The **38 regression fixtures** (`src/lib/scorer.selftest.ts`) cover: core scoring
+The **53 regression fixtures** (`src/lib/scorer.selftest.ts`) cover: core scoring
 & severity retention, the coverage/confidence/definitive-100 gate, critical caps
 (no stacking), the lexicon pre-scan/adjudication (including "keywords alone never
 deduct"), IHRA/3D mapping and the AS5 stance gate, Block S sourcing, the S5
 designated-source ladder (including wing distinctions, controlled bodies and
-multi-authority lists), and the OPINION/POST/SATIRE designation profiles.
+multi-authority lists), the OPINION/POST/SATIRE designation profiles, and the
+Part 2 **scoring hardening** (severity ceilings, stance ×1.5, diminishing
+per-occurrence penalties and consistency governance).
+
+`npm run calibrate` runs 14 fixtures (7 problematic, 7 neutral) through the scorer
+both ways — hardening off (*было*) and on (*стало*) — prints the comparison table
+against the expected ranges, and **fails** if any neutral fixture drops below 90 or
+any fixture lands outside its band.
 
 `BASE_URL=https://pts-100-article-assessment.vercel.app npm run test:endpoint`
 runs the same assertions against production. `?debug=1` (or `PTS_DEBUG=1`) adds the
@@ -290,6 +323,7 @@ resolutions to the API response.
 | `PTS_JUDGE_MODEL` | Precision-pass model (default strongest Sonnet-class). |
 | `PTS_JUDGE_RUNS` | Judge runs; majority-confirm if > 1 (default `1`). |
 | `PTS_CHUNK_CHARS` / chunk overlap | Chunking threshold (default `6000` / `600`). |
+| `PTS_HARDENING` | `1` (default) applies the Part 2 scoring hardening; `0` disables it. All hardening values are tuned in the config block in `src/lib/rubric.ts`. |
 
 ## Deploy to Vercel
 

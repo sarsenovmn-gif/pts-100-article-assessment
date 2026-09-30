@@ -642,6 +642,83 @@ fix(38, "opinion", "SATIRE is labelled, not scored", () => {
 });
 
 // ============================================================
+// Group 7 — Scoring hardening (Part 2) — { hardening: true } (45-53)
+// ============================================================
+
+const H = { hardening: true } as const;
+
+fix(45, "hardening", "MODERATE worst finding caps the axis at 80", () => {
+  const q = "the Jews secretly control the banks";
+  const s = calculate_scores(mock({ AS2: { severity: "MODERATE", failure_stance: "OWN_VOICE", evidence_quote: q, ihra_examples: [2] } }), q, H);
+  assert(s.pts_a.displayed_score === 80, "PTS-A capped at 80", s.pts_a);
+  assert(s.pts_a.cap_applied && /MODERATE/.test(s.pts_a.cap_reason ?? ""), "cap reason cites severity", s.pts_a.cap_reason);
+});
+
+fix(46, "hardening", "MINOR worst finding caps the axis at 90", () => {
+  const q = "the profile mentions the subject's heritage once";
+  const s = calculate_scores(mock({ AS6: { severity: "MINOR", failure_stance: "OWN_VOICE", evidence_quote: q } }), q, H);
+  assert(s.pts_a.displayed_score === 90, "PTS-A capped at 90", s.pts_a);
+});
+
+fix(47, "hardening", "MAJOR worst finding caps the axis at 60", () => {
+  const q = "answer to tel aviv, the columnist wrote";
+  const s = calculate_scores(mock({ AS3: { severity: "MAJOR", failure_stance: "OWN_VOICE", evidence_quote: q, ihra_examples: [6] } }), q, H);
+  assert(s.pts_a.displayed_score === 60, "PTS-A capped at 60", s.pts_a);
+});
+
+fix(48, "hardening", "SEVERE (non-critical AS2) caps the axis at 40", () => {
+  const q = "the Jews control everything and must be stopped";
+  const s = calculate_scores(mock({ AS2: { severity: "SEVERE", failure_stance: "OWN_VOICE", evidence_quote: q, ihra_examples: [2] } }), q, H);
+  assert(s.pts_a.displayed_score === 40, "PTS-A capped at 40", s.pts_a);
+});
+
+fix(49, "hardening", "OWN_VOICE applies a 1.5x penalty multiplier", () => {
+  const q = "the profile foregrounds the subject's heritage";
+  const s = calculate_scores(mock({ AS6: { severity: "MODERATE", failure_stance: "OWN_VOICE", evidence_quote: q } }), q, H);
+  const f = s.pts_a.findings.find((x) => x.criterion === "AS6");
+  assert(f?.points_lost === 7.5, "AS6 MODERATE own-voice loses 5 x 1.5 = 7.5", f);
+});
+
+fix(50, "hardening", "repeated occurrences add up with a diminishing coefficient", () => {
+  const q = "they own the banks; they own the papers; they run the government";
+  const s = calculate_scores(mock({ AS6: { severity: "MODERATE", failure_stance: "OWN_VOICE", occurrences: 2, evidence_quote: q } }), q, H);
+  const f = s.pts_a.findings.find((x) => x.criterion === "AS6");
+  // base 5 x occurrenceFactor(2)=1.5 x stance 1.5 = 11.25
+  assert(f?.points_lost === 11.25, "two occurrences: 5 x 1.5 x 1.5 = 11.25", f);
+});
+
+fix(51, "hardening", "consistency < 0.5 forces LOW confidence, an 85 ceiling and review", () => {
+  const q = "the profile mentions the subject's heritage once";
+  const s = calculate_scores(
+    mock({ AS6: { severity: "MINOR", failure_stance: "OWN_VOICE", evidence_quote: q } }),
+    q,
+    { ...H, consistency: 0.0 },
+  );
+  assert(s.pts_a.displayed_score === 85, "score ceiling 85 (min of 90 sev-cap and 85)", s.pts_a);
+  assert(s.pts_a.confidence === "LOW", "confidence forced LOW", s.pts_a.confidence);
+  assert(s.pts_a.human_review.some((r) => r.criterion === "CONSISTENCY"), "consistency review flag", s.pts_a.human_review);
+});
+
+fix(52, "hardening", "HIGH confidence is withheld when consistency is in [0.5, 0.8)", () => {
+  const q = "the profile mentions the subject's heritage once";
+  const s = calculate_scores(
+    mock({ AS6: { severity: "MINOR", failure_stance: "OWN_VOICE", evidence_quote: q, confidence: 0.9 } }),
+    q,
+    { ...H, consistency: 0.6 },
+  );
+  assert(s.pts_a.confidence === "MEDIUM", "HIGH downgraded to MEDIUM", s.pts_a.confidence);
+  assert(s.pts_a.displayed_score === 90, "no 85 ceiling above 0.5 consistency", s.pts_a);
+});
+
+fix(53, "hardening", "neutral: legitimate criticism / not_indicator stays 100 under hardening", () => {
+  const article = "HEADLINE: Rights groups debate the policy\n\nBODY: Critics described the policy as apartheid and warned of occupation and possible war crimes at the summit.";
+  const hits = hitsFor(article);
+  const s = calculate_scores(mock(), article, { ...H, lexiconHits: hits });
+  assert(s.pts_a.displayed_score === 100, "clean/legit criticism not penalised", s.pts_a);
+  assert(s.pts_j.displayed_score === 100, "PTS-J clean", s.pts_j);
+});
+
+// ============================================================
 // Conduct sanity + predictedAntisemitic (bundled into the run)
 // ============================================================
 

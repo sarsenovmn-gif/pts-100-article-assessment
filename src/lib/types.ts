@@ -61,6 +61,11 @@ export type CriterionAssessment = {
   fabrication?: boolean;
   /** Set by the judge when irony is plausible but unsignalled (assessed literally). */
   irony_possible?: boolean;
+  /**
+   * Number of distinct passages/allegations supporting this criterion finding.
+   * Drives the diminishing per-occurrence penalty (Part 2). Defaults to 1.
+   */
+  occurrences?: number;
 };
 
 /** A Sharansky 3D adjudication the model returns for Israel/Zionism discourse. */

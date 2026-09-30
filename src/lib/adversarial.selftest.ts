@@ -236,6 +236,39 @@ test("build+score: unverifiable confirmed quote becomes UNRESOLVED, not a deduct
 });
 
 // ============================================================
+// Part 2 — judge-floor (gated by hardening)
+// ============================================================
+
+test("judge-floor: an UNJUSTIFIED rejection is kept at the severity floor (hardening)", () => {
+  const merged = [alleg({ id: "A1", criterion: "AS2", quotes: ["the Jews control the banks"], confidence: 0.9 })];
+  const j = judgement([
+    { allegation_id: "A1", verdict: "REJECTED", final_criterion: "AS2", final_stance: "OWN_VOICE", reason: "nah", confidence: 0.5 },
+  ]);
+  const kept = buildAssessment({ merged, judgement: j, candidate_passages: [], claims: [], dismissed: [], hits: [], hardening: true });
+  assert(kept.criteria.find((c) => c.id === "AS2")?.severity === "MODERATE", "kept at floor MODERATE (baseline MAJOR-1)", kept.criteria.find((c) => c.id === "AS2"));
+  const dropped = buildAssessment({ merged, judgement: j, candidate_passages: [], claims: [], dismissed: [], hits: [] });
+  assert(dropped.criteria.find((c) => c.id === "AS2")?.severity === "PASS", "dropped when hardening off", dropped.criteria.find((c) => c.id === "AS2"));
+});
+
+test("judge-floor: a JUSTIFIED rejection is still honoured (hardening)", () => {
+  const merged = [alleg({ id: "A1", criterion: "AS2", quotes: ["the Jews control the banks"], confidence: 0.9 })];
+  const j = judgement([
+    { allegation_id: "A1", verdict: "REJECTED", final_criterion: "AS2", final_stance: "COUNTERED", reason: "stance gate: COUNTERED, quote is rebutted", confidence: 0.9 },
+  ]);
+  const a = buildAssessment({ merged, judgement: j, candidate_passages: [], claims: [], dismissed: [], hits: [], hardening: true });
+  assert(a.criteria.find((c) => c.id === "AS2")?.severity === "PASS", "justified rejection honoured", a.criteria.find((c) => c.id === "AS2"));
+});
+
+test("judge-floor: a CONFIRMED severity below the floor is raised (hardening)", () => {
+  const merged = [alleg({ id: "A1", criterion: "AS2", quotes: ["the Jews control the banks"], confidence: 0.9 })];
+  const j = judgement([
+    { allegation_id: "A1", verdict: "CONFIRMED", final_criterion: "AS2", final_stance: "OWN_VOICE", severity: "MINOR", reason: "confirmed", confidence: 0.9 },
+  ]);
+  const a = buildAssessment({ merged, judgement: j, candidate_passages: [], claims: [], dismissed: [], hits: [], hardening: true });
+  assert(a.criteria.find((c) => c.id === "AS2")?.severity === "MODERATE", "MINOR raised to floor MODERATE", a.criteria.find((c) => c.id === "AS2"));
+});
+
+// ============================================================
 // Runner
 // ============================================================
 

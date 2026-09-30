@@ -173,6 +173,84 @@ export const CONFIDENCE_HIGH = 0.75;
 export const CONFIDENCE_MEDIUM = 0.55;
 
 // ============================================================
+// SCORING HARDENING (Part 2). One tunable block — change values HERE.
+// The whole layer is applied by the production path (assess.ts) and can be
+// turned off with PTS_HARDENING=0. Unit tests that assert the raw pre-cap
+// arithmetic call the scorer with { hardening: false }; the calibration harness
+// runs every fixture both ways to show "before / after".
+// ============================================================
+
+/** Master switch used by the production callers (default ON). */
+export const HARDENING_ENABLED = (process.env.PTS_HARDENING ?? "1") !== "0";
+
+/**
+ * Per-axis score CEILING implied by the WORST-severity finding on that axis
+ * ("CRITICAL" == SEVERE). The worst single finding alone caps the axis; the
+ * lowest of all applicable caps wins (caps never stack). Tune PTS-A and PTS-J
+ * independently. A missing key = no ceiling for that severity.
+ */
+export const SEVERITY_SCORE_CAP: Record<"A" | "J", Partial<Record<Severity, number>>> = {
+  A: { MINOR: 90, MODERATE: 80, MAJOR: 60, SEVERE: 40 },
+  J: { MINOR: 90, MODERATE: 80, MAJOR: 60, SEVERE: 40 },
+};
+
+/**
+ * Penalty multiplier by stance: an author asserting a trope in their OWN VOICE
+ * is penalised 1.5× harder than relaying/reporting it. Applied to points lost.
+ */
+export const STANCE_PENALTY_MULTIPLIER: Record<string, number> = {
+  OWN_VOICE: 1.5,
+  UNCRITICAL_AMPLIFICATION: 1.0,
+  REPORTED_CONTEXTUALISED: 1.0,
+  COUNTERED: 1.0,
+  NONE: 1.0,
+  "N/A": 1.0,
+};
+
+/**
+ * Diminishing coefficients for a repeated pattern across several passages.
+ * Penalties ADD UP across occurrences (no saturation at one finding per
+ * criterion): 1st occurrence 1.0, 2nd 0.5, 3rd 0.25, further ones use the tail.
+ */
+export const OCCURRENCE_DIMINISH = [1.0, 0.5, 0.25];
+export const OCCURRENCE_DIMINISH_TAIL = 0.25;
+
+/** Sum of the diminishing coefficients for n occurrences of one pattern. */
+export function occurrenceFactor(n: number): number {
+  let f = 0;
+  for (let i = 0; i < Math.max(1, n); i++) {
+    f += OCCURRENCE_DIMINISH[i] ?? OCCURRENCE_DIMINISH_TAIL;
+  }
+  return f;
+}
+
+/**
+ * Consistency governance (Part 2). `consistency` = fraction of confirmed
+ * findings reproduced in EVERY prosecutor run (see computeConsistency).
+ *  - below LOW threshold  → confidence forced to LOW, score ceiling applied,
+ *    result flagged "requires human review".
+ *  - HIGH confidence is only allowed at/above HIGH_MIN.
+ */
+export const CONSISTENCY_LOW_THRESHOLD = 0.5;
+export const CONSISTENCY_LOW_SCORE_CAP = 85;
+export const CONSISTENCY_HIGH_MIN = 0.8;
+
+/**
+ * Judge-floor (Part 2): the judge may only DROP a prosecutor finding with an
+ * explicit justification; otherwise the finding is kept, at a severity no more
+ * than one level below its baseline (inferred from prosecutor confidence).
+ */
+export const JUDGE_BASELINE_FROM_CONFIDENCE: { min: number; severity: Severity }[] = [
+  { min: 0.85, severity: "MAJOR" },
+  { min: 0.65, severity: "MODERATE" },
+  { min: 0.0, severity: "MINOR" },
+];
+/** A rejection reason must be this substantive (chars) OR cite a rule keyword. */
+export const JUDGE_JUSTIFICATION_MIN_CHARS = 12;
+export const JUDGE_JUSTIFICATION_KEYWORDS =
+  /caveat|stance|gate|IMPRESS|IHRA|not[_ ]indicator|no quote|unverif|irony|public interest|attribution|context|rebut|refut|counter|reported|theolog|legitimate|criticism|policy|opinion|partisan|1\.\d/i;
+
+// ============================================================
 // Designation profiles.
 // ============================================================
 

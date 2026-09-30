@@ -1,5 +1,8 @@
 import {
+  JUDGE_BASELINE_FROM_CONFIDENCE,
   JUDGE_FALLBACK_MODEL,
+  JUDGE_JUSTIFICATION_KEYWORDS,
+  JUDGE_JUSTIFICATION_MIN_CHARS,
   JUDGE_MODEL,
   JUDGE_RUNS,
   MODEL_CRITERION_IDS,
@@ -39,6 +42,8 @@ export type TwoPassOptions = {
   languageHint?: string | null;
   /** Abort signal propagated from the route time budget. */
   signal?: AbortSignal;
+  /** Part 2: enforce the judge-floor when building the assessment. */
+  hardening?: boolean;
 };
 
 export type TwoPassResult = {
@@ -529,6 +534,27 @@ function pickSection(quote: string): string | undefined {
   return m ? (m[1].toUpperCase() as (typeof SECTIONS)[number]) : "BODY";
 }
 
+// --- Judge-floor helpers (Part 2). Gated by `hardening`. ---
+const SEV_LADDER: Severity[] = ["MINOR", "MODERATE", "MAJOR", "SEVERE"];
+
+/** Baseline severity implied by the prosecutor's confidence in an allegation. */
+function baselineSeverity(confidence: number): Severity {
+  for (const b of JUDGE_BASELINE_FROM_CONFIDENCE) if (confidence >= b.min) return b.severity;
+  return "MINOR";
+}
+
+/** One severity level below `sev` (never below MINOR). */
+function oneLevelBelow(sev: Severity): Severity {
+  const i = SEV_LADDER.indexOf(sev);
+  return i <= 0 ? "MINOR" : SEV_LADDER[i - 1];
+}
+
+/** A judge rejection is honoured only if it carries an explicit justification. */
+function isJustified(reason: string | undefined): boolean {
+  const r = (reason || "").trim();
+  return r.length >= JUDGE_JUSTIFICATION_MIN_CHARS || JUDGE_JUSTIFICATION_KEYWORDS.test(r);
+}
+
 export function buildAssessment(args: {
   merged: ProsecutorAllegation[];
   judgement: Judgement;
@@ -536,8 +562,11 @@ export function buildAssessment(args: {
   claims: Claim[];
   dismissed: DismissedLexiconHit[];
   hits: LexiconHit[];
+  /** Part 2: enforce the judge-floor (justified-rejection + severity floor). */
+  hardening?: boolean;
 }): Assessment {
   const { merged, judgement, candidate_passages, claims, dismissed, hits } = args;
+  const hardening = args.hardening ?? false;
   const allegationById = new Map(merged.map((a) => [a.id, a]));
 
   const criteria: Record<string, CriterionAssessment> = {};
@@ -554,13 +583,29 @@ export function buildAssessment(args: {
   }
 
   const confirmedCriteria = new Set<string>();
+  const occByCid: Record<string, number> = {};
   for (const v of judgement.verdicts ?? []) {
-    if (v.verdict === "REJECTED") continue;
     const cid = v.final_criterion;
     if (!(cid in criteria)) continue;
     const alleg = allegationById.get(v.allegation_id);
+    const baseConf = alleg?.confidence ?? v.confidence ?? 0.7;
+    // The judge may only DROP a finding with an explicit justification; an
+    // unjustified rejection is kept at the severity floor and flagged.
+    const floor = hardening ? oneLevelBelow(baselineSeverity(baseConf)) : "MINOR";
+    let keptByFloor = false;
+    let sev: Severity;
+    if (v.verdict === "REJECTED") {
+      if (!hardening || isJustified(v.reason)) continue; // honour the rejection
+      sev = floor;
+      keptByFloor = true;
+    } else {
+      sev = (v.severity as Severity) || (v.verdict === "DOWNGRADED" ? "MODERATE" : "MAJOR");
+      // A confirmed/downgraded finding cannot drop more than one level below its baseline.
+      if (hardening && (SEVERITY_RANK[sev] ?? 0) < (SEVERITY_RANK[floor] ?? 0)) sev = floor;
+    }
+
     const quotes = (alleg?.quotes ?? []).filter(Boolean);
-    const sev = (v.severity as Severity) || (v.verdict === "DOWNGRADED" ? "MODERATE" : "MAJOR");
+    occByCid[cid] = (occByCid[cid] ?? 0) + 1;
     const prev = criteria[cid];
     const better = prev.severity === "PASS" || (SEVERITY_RANK[sev] ?? 0) > (SEVERITY_RANK[prev.severity] ?? 0);
     if (better) {
@@ -569,7 +614,9 @@ export function buildAssessment(args: {
         severity: sev,
         evidence_quote: quotes.join(" … "),
         section: quotes[0] ? pickSection(quotes[0]) : "BODY",
-        rationale: v.reason || alleg?.argument || "",
+        rationale: keptByFloor
+          ? `Kept at severity floor despite an unjustified judge rejection: ${v.reason || "(no reason given)"}`
+          : v.reason || alleg?.argument || "",
         ihra_examples: alleg?.ihra_examples ?? [],
         confidence: v.confidence ?? alleg?.confidence ?? 0.7,
         failure_stance: v.final_stance ?? alleg?.stance ?? "OWN_VOICE",
@@ -579,6 +626,10 @@ export function buildAssessment(args: {
       };
     }
     confirmedCriteria.add(cid);
+  }
+  // Record how many passages/allegations supported each criterion (diminishing penalty).
+  for (const [cid, n] of Object.entries(occByCid)) {
+    if (criteria[cid] && n > 1) criteria[cid].occurrences = n;
   }
 
   // Lexicon adjudications the scorer consumes: dismissals + judge confirmations.
@@ -699,7 +750,7 @@ export async function assessTwoPass(
   const judgement = combineJudgements(judgements);
 
   const { consistency, note } = computeConsistency(merged, judgement.verdicts ?? [], PROSECUTOR_RUNS);
-  const assessment = buildAssessment({ merged, judgement, candidate_passages, claims, dismissed, hits });
+  const assessment = buildAssessment({ merged, judgement, candidate_passages, claims, dismissed, hits, hardening: opts.hardening ?? false });
   const irony = (judgement.verdicts ?? []).some((v) => v.irony_possible);
 
   const normalisation_events = hits
