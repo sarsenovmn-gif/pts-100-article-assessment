@@ -59,6 +59,8 @@ export type CriterionAssessment = {
   human_review_required?: boolean;
   /** J1 / clause 8: invented facts, quotes or a fabricated source. */
   fabrication?: boolean;
+  /** Set by the judge when irony is plausible but unsignalled (assessed literally). */
+  irony_possible?: boolean;
 };
 
 /** A Sharansky 3D adjudication the model returns for Israel/Zionism discourse. */
@@ -131,6 +133,84 @@ export type LexiconHit = {
   section: string;
   start: number;
   end: number;
+  /** True when the pattern only matched after homoglyph/leet normalisation. */
+  normalised?: boolean;
+  normalisation_note?: string;
+};
+
+// ============================================================
+// Two-pass architecture (prosecutor → judge → scorer)
+// ============================================================
+
+/** One allegation from the adversarial prosecutor pass (recall-oriented). */
+export type ProsecutorAllegation = {
+  id: string;
+  criterion: string;
+  /** Up to three verbatim quotes supporting one allegation. */
+  quotes: string[];
+  stance: "NONE" | Stance;
+  ihra_examples: number[];
+  argument: string;
+  confidence: number;
+  /** Which prosecutor run(s) produced this allegation (for the consistency index). */
+  runs?: number[];
+};
+
+export type DismissedLexiconHit = { id: string; reason: string };
+
+/** Structured output of a single prosecutor run. */
+export type Prosecution = {
+  allegations: ProsecutorAllegation[];
+  candidate_passages: string[];
+  claims: Claim[];
+  dismissed_lexicon_hits: DismissedLexiconHit[];
+};
+
+export type Verdict = "CONFIRMED" | "DOWNGRADED" | "REJECTED";
+
+/** The judge pass decides each merged allegation against the full rule set. */
+export type JudgeVerdict = {
+  allegation_id: string;
+  verdict: Verdict;
+  final_criterion: string;
+  final_stance: "NONE" | Stance;
+  /** Graded severity assigned by the precision judge for a surviving allegation. */
+  severity?: Severity;
+  reason: string;
+  confidence: number;
+  irony_possible?: boolean;
+  fabrication?: boolean;
+};
+
+/** Structured output of the judge pass. */
+export type Judgement = {
+  verdicts: JudgeVerdict[];
+  designation: Designation;
+  language: string;
+  overall_stance: Stance;
+  summary: string;
+  three_d?: ThreeDFinding[];
+  conduct: ConductAssessment[];
+  legal_flag: LegalFlag;
+};
+
+export type InjectionPassage = { text: string; label: string };
+export type InjectionInfo = { suspected: boolean; passages: InjectionPassage[] };
+
+/** A normalisation that changed a token the pre-scan matched. */
+export type NormalisationEvent = { section: string; original: string; normalised: string };
+
+/** Everything a reviewer needs to answer "why did it pass?" (Part E). */
+export type AuditData = {
+  prosecutor_runs: Prosecution[];
+  merged_allegations: ProsecutorAllegation[];
+  verdicts: JudgeVerdict[];
+  dismissed_lexicon_hits: DismissedLexiconHit[];
+  consistency: number | null;
+  consistency_note: string;
+  irony_possible: boolean;
+  chunking_used: boolean;
+  normalisation_events: NormalisationEvent[];
 };
 
 /** Result of resolving a source name against the designation datasets. */
@@ -200,6 +280,7 @@ export type Finding = {
   three_d?: ThreeD | null;
   lexicon_id?: string | null;
   rung?: string | null;
+  irony_possible?: boolean;
 };
 
 export type RejectedFinding = {
@@ -207,6 +288,7 @@ export type RejectedFinding = {
   reason: string;
   quote: string;
   rationale: string;
+  rejected_by?: "stance_gate" | "quote_check" | "conduct_guard" | "judge";
 };
 
 /** A relevant criterion whose evidence was insufficient/unverifiable. */
@@ -243,6 +325,15 @@ export type Provenance = {
   designation?: Designation;
   coverage_pct?: number;
   confidence?: ConfidenceBand;
+  /** Two-pass provenance (Part G). */
+  architecture?: "single-pass" | "two-pass";
+  prosecutor_model?: string;
+  judge_model?: string;
+  prosecutor_runs?: number;
+  judge_runs?: number;
+  prosecutor_temperature?: number;
+  chunking_used?: boolean;
+  normalisation_event_count?: number;
 };
 
 /** One of the two independent 100-point scores (PTS-A or PTS-J). */
@@ -292,6 +383,11 @@ export type Scores = {
   org_resolutions?: OrgResolution[];
   warnings?: string[];
   note?: string;
+  /** Fraction of confirmed findings present in every prosecutor run (Part A4). */
+  consistency?: number | null;
+  consistency_note?: string;
+  injection?: InjectionInfo;
+  audit?: AuditData;
   provenance: Provenance;
   source?: {
     url: string | null;
