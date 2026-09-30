@@ -8,6 +8,7 @@
     "start": "next start -p 43127",
     "lint": "eslint",
     "selftest": "tsx scripts/selftest.mjs",
+    "test:adversarial": "tsx scripts/adversarial.mjs",
     "demo:bad": "tsx scripts/demo.mjs --demo-bad --debug",
     "test:endpoint": "node scripts/endpoint.test.mjs",
     "docs:pdf": "google-chrome-stable --headless --no-sandbox --disable-gpu --no-pdf-header-footer --print-to-pdf=docs/PTS-Overview.pdf file://$PWD/docs/pts-overview.html"
