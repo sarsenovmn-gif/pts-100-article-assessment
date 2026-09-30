@@ -290,6 +290,11 @@ resolutions to the API response.
 | `PTS_JUDGE_MODEL` | Precision-pass model (default strongest Sonnet-class). |
 | `PTS_JUDGE_RUNS` | Judge runs; majority-confirm if > 1 (default `1`). |
 | `PTS_CHUNK_CHARS` / chunk overlap | Chunking threshold (default `6000` / `600`). |
+| `PTS_PROSECUTOR_MAX_TOKENS` | Prosecutor output token budget (default `4000`). |
+| `PTS_JUDGE_MAX_TOKENS` | Judge output token budget (default `8000`). |
+| `PTS_TIME_BUDGET_MS` | Overall two-pass time budget; structured 504 past it (default `240000`). |
+| `PTS_MAX_RETRIES` | Per-call model retry budget (default `2`). |
+| `PTS_CALL_TIMEOUT_MS` | Per-call abort timeout (default `90000`). |
 
 ## Deploy to Vercel
 
@@ -300,6 +305,17 @@ vercel --prod
 
 Add `ANTHROPIC_API_KEY` **or** `OPENROUTER_API_KEY` under
 **Project → Settings → Environment Variables**.
+
+**Two-pass on serverless (important).** N prosecutor runs + a Sonnet judge is
+several model calls, so the route sets `export const maxDuration = 300` and runs the
+prosecutor runs/chunks in parallel. For this to exceed 60s you must enable **Fluid
+compute** (Project → Settings → Functions). The recommended production setting is
+`PTS_PROSECUTOR_RUNS=2` (parallelised, so wall-clock ≈ a single prosecutor call plus
+the judge). The orchestrator tracks a `PTS_TIME_BUDGET_MS` budget and returns a
+structured `504 {error:"TIME_BUDGET_EXCEEDED", stage, elapsed_ms}` rather than
+letting the platform kill the function and emit a non-JSON error page. Every error
+response is JSON tagged with `stage` (`fetch`/`prosecutor`/`judge`/`scorer`) and
+`elapsed_ms`; add `?debug=1` to also get per-stage timings.
 
 ## Limitations (read before relying on the output)
 
