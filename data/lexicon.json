@@ -1,6 +1,6 @@
 {
-  "version": "lexicon-2026-09-30-seed-1",
-  "note": "SEED lexicon for the PTS pre-scan. Patterns are indicators only, never automatic findings; the model must adjudicate every hit in context. Requires expert review before production use. Patterns are matched case-insensitively and Unicode-aware.",
+  "version": "lexicon-2026-09-30-seed-2",
+  "note": "SEED lexicon for the PTS pre-scan. Patterns are indicators only, never automatic findings; the model must adjudicate every hit in context. Requires expert review before production use. Patterns are matched case-insensitively and Unicode-aware. Non-English entries fire only when the article language matches their `languages` tag.",
   "entries": [
     {
       "id": "zog",
@@ -177,6 +177,149 @@
       "context_rule": "Legitimate political vocabulary. Becomes relevant only with an independent conspiracy/control mechanism.",
       "source": "PTS neutrality safeguard",
       "version": "lexicon-2026-09-30-seed-1"
+    },
+    {
+      "id": "slurs_en",
+      "pattern": "\\bkikes?\\b|\\byids?\\b|\\bheebs?\\b|\\bhymies?\\b|\\bjew ?boys?\\b|\\bchrist-?killers?\\b",
+      "languages": ["en"],
+      "strength": "hard",
+      "ihra_examples": [2],
+      "criterion": "AS2",
+      "context_rule": "Anti-Jewish slurs. Own-voice use is almost always a finding; quotation to report or condemn the slur is not.",
+      "source": "ADL hate symbols; AJC Translate Hate",
+      "version": "lexicon-2026-09-30-seed-2"
+    },
+    {
+      "id": "talmudic_slur",
+      "pattern": "talmudic (?:control|plot|scheme|mind)|talmud teaches them|the talmud says jews",
+      "languages": ["en"],
+      "strength": "hard",
+      "ihra_examples": [2],
+      "criterion": "AS2",
+      "context_rule": "'Talmudic' weaponised as a slur, or the Talmud invoked to prove a collective Jewish plot. Scholarly reference to the Talmud is not_indicator.",
+      "source": "ADL coded language guidance",
+      "version": "lexicon-2026-09-30-seed-2"
+    },
+    {
+      "id": "meme_codes_hard",
+      "pattern": "\\b6mwe\\b|goyim know|shabbos goy|\\bTJD\\b|\\(\\(\\(|\\)\\)\\)",
+      "languages": ["en"],
+      "strength": "hard",
+      "ihra_examples": [2],
+      "criterion": "AS2",
+      "context_rule": "Unambiguous neo-Nazi/extremist meme codes (6MWE = 'six million wasn't enough'; echo triple-parentheses; 'goyim know'; 'Shabbos goy'; TJD).",
+      "source": "ADL hate symbols database",
+      "version": "lexicon-2026-09-30-seed-2"
+    },
+    {
+      "id": "meme_phrases_soft",
+      "pattern": "the noticing|every single time|\\bearly life\\b",
+      "languages": ["en"],
+      "strength": "soft",
+      "ihra_examples": [2],
+      "criterion": "AS2",
+      "context_rule": "Dog-whistle phrases ('early life' section policing, 'every single time', 'the noticing') used to imply hidden Jewish over-representation. Ordinary use of these common words is not_indicator; only a hostile hidden-Jewish-influence framing qualifies.",
+      "source": "ADL coded language guidance",
+      "version": "lexicon-2026-09-30-seed-2"
+    },
+    {
+      "id": "dual_loyalty_911",
+      "pattern": "\\bdual citizens?\\b|(?:the )?jews? (?:did|were behind|caused|planned) 9[\\/-]?11|jews? behind (?:9[\\/-]?11|the attacks?)",
+      "languages": ["en"],
+      "strength": "soft",
+      "ihra_examples": [3, 6],
+      "criterion": "AS3",
+      "context_rule": "Collective dual-loyalty or collective-blame conspiracy (e.g. 'the Jews did 9/11'). Documented individual dual citizenship reported factually is not_indicator.",
+      "source": "IHRA examples 3,6",
+      "version": "lexicon-2026-09-30-seed-2"
+    },
+    {
+      "id": "de_conspiracy_hard",
+      "pattern": "judenpresse|weltjudentum|zionistische weltverschw\u00f6rung|judensau",
+      "languages": ["de"],
+      "strength": "hard",
+      "ihra_examples": [2],
+      "criterion": "AS2",
+      "context_rule": "German-language collective-conspiracy/dehumanisation tropes ('Judenpresse', 'Weltjudentum', 'zionistische Weltverschw\u00f6rung', 'Judensau').",
+      "source": "Amadeu Antonio Stiftung; RIAS",
+      "version": "lexicon-2026-09-30-seed-2"
+    },
+    {
+      "id": "de_conspiracy_soft",
+      "pattern": "\\bostk\u00fcste\\b|rothschild",
+      "languages": ["de"],
+      "strength": "soft",
+      "ihra_examples": [2],
+      "criterion": "AS2",
+      "context_rule": "'Ostk\u00fcste' (East-Coast code for Jewish finance) and 'Rothschild' as puppet-master. Geographic or ordinary business references are not_indicator.",
+      "source": "RIAS coded language guidance",
+      "version": "lexicon-2026-09-30-seed-2"
+    },
+    {
+      "id": "de_ni_israelkritik",
+      "pattern": "\\bisraelkritik\\b",
+      "languages": ["de"],
+      "strength": "not_indicator",
+      "ihra_examples": [],
+      "criterion": "AS5",
+      "context_rule": "Ordinary German term for criticism of Israel. Never a finding by appearance alone.",
+      "source": "PTS neutrality safeguard",
+      "version": "lexicon-2026-09-30-seed-2"
+    },
+    {
+      "id": "pl_slur_hard",
+      "pattern": "\\bparch\\b|\\b\u017cydek\\b|\\b\u017cydki\\b|\\b\u017cydzisko\\b",
+      "languages": ["pl"],
+      "strength": "hard",
+      "ihra_examples": [2],
+      "criterion": "AS2",
+      "context_rule": "Polish anti-Jewish slurs ('parch', '\u017cydek', '\u017cydki'). Reporting/condemning the slur is not_indicator.",
+      "source": "Otwarta Rzeczpospolita hate-speech lexicon",
+      "version": "lexicon-2026-09-30-seed-2"
+    },
+    {
+      "id": "pl_conspiracy_soft",
+      "pattern": "\u017cydokomun|\u017cydowskie pieni\u0105dze|\u017cydzi rz\u0105dz\u0105|syjonistyczne media",
+      "languages": ["pl"],
+      "strength": "soft",
+      "ihra_examples": [2],
+      "criterion": "AS2",
+      "context_rule": "Polish collective-power tropes ('\u017cydokomuna', '\u017cydowskie pieni\u0105dze', '\u017bydzi rz\u0105dz\u0105', 'syjonistyczne media').",
+      "source": "Otwarta Rzeczpospolita",
+      "version": "lexicon-2026-09-30-seed-2"
+    },
+    {
+      "id": "cs_slur_hard",
+      "pattern": "\\b\u017eid\u00e1k\\b|\\b\u017eid\u00e1ci\\b",
+      "languages": ["cs"],
+      "strength": "hard",
+      "ihra_examples": [2],
+      "criterion": "AS2",
+      "context_rule": "Czech anti-Jewish slur ('\u017eid\u00e1k'). Reporting/condemning the slur is not_indicator.",
+      "source": "In IUSTITIA hate-speech monitoring",
+      "version": "lexicon-2026-09-30-seed-2"
+    },
+    {
+      "id": "cs_conspiracy_soft",
+      "pattern": "\u017eidozedn\u00e1\u0159sk|sionistick\u00e1 lobby|\u017eidi ovl\u00e1daj\u00ed",
+      "languages": ["cs"],
+      "strength": "soft",
+      "ihra_examples": [2],
+      "criterion": "AS2",
+      "context_rule": "Czech collective-conspiracy tropes ('\u017eidozedn\u00e1\u0159sk\u00e9 spiknut\u00ed', 'sionistick\u00e1 lobby', '\u017bidi ovl\u00e1daj\u00ed').",
+      "source": "In IUSTITIA",
+      "version": "lexicon-2026-09-30-seed-2"
+    },
+    {
+      "id": "es_conspiracy_soft",
+      "pattern": "judeomas\u00f3nico|sionismo internacional|los jud\u00edos controlan|prensa jud\u00eda|banca jud\u00eda",
+      "languages": ["es"],
+      "strength": "soft",
+      "ihra_examples": [2],
+      "criterion": "AS2",
+      "context_rule": "Spanish collective-power/conspiracy tropes ('judeomas\u00f3nico', 'sionismo internacional', 'los jud\u00edos controlan', 'prensa jud\u00eda', 'banca jud\u00eda').",
+      "source": "Movimiento contra la Intolerancia",
+      "version": "lexicon-2026-09-30-seed-2"
     }
   ]
 }

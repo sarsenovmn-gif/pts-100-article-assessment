@@ -544,6 +544,79 @@ fix(35, "designated", "a UN-listed org (Al-Qaeda) resolves via the UN authority"
 });
 
 // ============================================================
+// Group 5b — Expanded seed data (controlled bodies + new orgs) (39-41)
+// ============================================================
+
+fix(39, "designated", "the Gaza Health Ministry resolves to Hamas via a controlled body (rung 2)", () => {
+  const s = calculate_scores(
+    mock({}, { claims: [claim({ sources_named: ["Gaza Health Ministry"], control_disclosed: false })] }),
+    CASUALTY_ARTICLE,
+  );
+  assert(
+    (s.org_resolutions ?? []).some(
+      (r) => r.canonical_name === "Hamas" && r.via_controlled_body?.name === "Gaza Ministry of Health",
+    ),
+    "Gaza Health Ministry resolved to Hamas via controlled body",
+    s.org_resolutions,
+  );
+  assert(s.pts_j.findings.some((x) => x.criterion === "S5" && x.rung === "rung 2"), "S5 rung 2", s.pts_j.findings);
+});
+
+fix(40, "designated", "an EU-listed org added in seed-2 (PKK) resolves and drives S5 rung 1", () => {
+  const s = calculate_scores(
+    mock({}, { claims: [claim({ sources_named: ["PKK"], used_in: ["body_own_voice"] })] }),
+    CASUALTY_ARTICLE,
+  );
+  assert(
+    (s.org_resolutions ?? []).some((r) => r.canonical_name === "Kurdistan Workers' Party" && r.authority === "EU"),
+    "PKK resolved via EU authority",
+    s.org_resolutions,
+  );
+  assert(s.pts_j.findings.some((x) => x.criterion === "S5" && x.rung === "rung 1"), "S5 rung 1", s.pts_j.findings);
+});
+
+fix(41, "designated", "an ISIL controlled body (Amaq) resolves to its parent", () => {
+  const s = calculate_scores(
+    mock({}, { claims: [claim({ sources_named: ["Amaq News Agency"], used_in: ["body_own_voice"] })] }),
+    CASUALTY_ARTICLE,
+  );
+  assert(
+    (s.org_resolutions ?? []).some(
+      (r) => r.canonical_name === "Islamic State (ISIL / Da'esh)" && r.via_controlled_body?.name === "Amaq News Agency",
+    ),
+    "Amaq resolved via controlled body to Islamic State",
+    s.org_resolutions,
+  );
+  assert(s.pts_j.findings.some((x) => x.criterion === "S5" && x.rung === "rung 1"), "S5 rung 1", s.pts_j.findings);
+});
+
+// ============================================================
+// Group 5c — Expanded lexicon (English slurs + multilingual seeds) (42-44)
+// ============================================================
+
+fix(42, "lexicon", "an English anti-Jewish slur is detected as a HARD hit", () => {
+  const article = "HEADLINE: Forum post removed\n\nBODY: A user called the columnist a kike, and moderators removed the post within minutes.";
+  const hits = hitsFor(article);
+  assert(hits.some((h) => h.id === "slurs_en" && h.strength === "hard"), "slur detected as hard", hits);
+});
+
+fix(43, "lexicon", "a German trope fires only when the article language is German", () => {
+  const article = "SCHLAGZEILE: Debatte\n\nTEXT: Der Autor sprach abfaellig von der Judenpresse und einer angeblichen Weltjudentum-Verschwoerung.";
+  const de = hitsFor(article, "de");
+  const en = hitsFor(article, "en");
+  assert(de.some((h) => h.id === "de_conspiracy_hard" && h.strength === "hard"), "German trope detected in de", de);
+  assert(!en.some((h) => h.id === "de_conspiracy_hard"), "German-only trope not fired for en", en);
+});
+
+fix(44, "lexicon", "a not_indicator German term (Israelkritik) alone produces no deduction", () => {
+  const article = "SCHLAGZEILE: Meinung\n\nTEXT: Sachliche Israelkritik an der Regierungspolitik ist legitim, sagte die Abgeordnete.";
+  const hits = hitsFor(article, "de");
+  assert(hits.some((h) => h.id === "de_ni_israelkritik" && h.strength === "not_indicator"), "Israelkritik is not_indicator", hits);
+  const s = calculate_scores(mock({}, {}, []), article, { lexiconHits: hits });
+  assert(s.pts_a.displayed_score === 100, "no deduction from a not_indicator hit", s.pts_a);
+});
+
+// ============================================================
 // Group 6 — Designation profiles (OPINION / POST / SATIRE) (36-38)
 // ============================================================
 

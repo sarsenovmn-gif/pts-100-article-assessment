@@ -1,10 +1,27 @@
 {
-  "version": "designations-2026-09-30-seed-1",
-  "note": "SEED designation dataset for deterministic source resolution. The model must NEVER decide designation status; only this configured data activates Block S rule S5. Lists require periodic refresh; different authorities designate different entities and scopes (e.g. wing-specific). controlled_body relationships require documented evidence and are conservative by design.",
+  "version": "designations-2026-09-30-seed-2",
+  "note": "SEED designation dataset for deterministic source resolution. The model must NEVER decide designation status; only this configured data activates Block S rule S5. Lists require periodic refresh; different authorities designate different entities and scopes (e.g. wing-specific). controlled_body relationships require documented evidence and are conservative by design. list_version and source_url values are placeholders that MUST be verified against the current official lists before production use.",
   "authorities": {
     "EU": "European Union terrorist list (Council Common Position 2001/931/CFSP)",
     "UN": "United Nations Security Council Consolidated List (1267/1989/2253 & 1988)"
   },
+  "not_covered": [
+    {
+      "name": "Houthis / Ansar Allah",
+      "reason": "Subject to UN 2140 sanctions, which is a country-specific sanctions regime, NOT a terrorist designation on the EU list or the UN 1267 ISIL/Al-Qaida list. Not resolved by S5.",
+      "handled_by": "S1-S4 (source-interest / attribution rules)"
+    },
+    {
+      "name": "Taliban",
+      "reason": "Listed under UN 1988 (a separate sanctions list), NOT UN 1267. The team may add 1988 handling later; excluded from S5 by default.",
+      "handled_by": "S1-S4"
+    },
+    {
+      "name": "State actors (IDF, Russian MoD, Syrian government, etc.)",
+      "reason": "Interested parties, not designated organisations. Never handled by S5.",
+      "handled_by": "S1-S4"
+    }
+  ],
   "organizations": [
     {
       "canonical_name": "Hamas",
@@ -13,6 +30,7 @@
         "Harakat al-Muqawama al-Islamiyya",
         "Islamic Resistance Movement",
         "Izz ad-Din al-Qassam Brigades",
+        "Izz al-Din al-Qassam Brigades",
         "Qassam Brigades",
         "al-Qassam Brigades"
       ],
@@ -21,19 +39,108 @@
           "authority": "EU",
           "status": "designated",
           "scope": "whole_organization",
-          "list_version": "EU 2024 update (Council Regulation)",
+          "list_version": "EU 2024 update (verify)",
           "legal_basis": "Council Common Position 2001/931/CFSP",
           "source_url": "https://www.consilium.europa.eu/en/policies/fight-against-terrorism/terrorist-list/"
         }
       ],
       "controlled_bodies": [
         {
+          "name": "Gaza Ministry of Health",
+          "aliases": [
+            "Gaza Health Ministry",
+            "Gaza's health ministry",
+            "Palestinian Health Ministry in Gaza",
+            "Ministry of Health in Gaza",
+            "the health ministry in Gaza",
+            "health ministry in Gaza",
+            "MoH Gaza"
+          ],
+          "relation": "controlled_ministry",
+          "evidence": "Ministry of the Hamas-run administration governing Gaza since 2007; routinely described as 'Hamas-run health ministry' by Reuters, AP, BBC and the NYT.",
+          "source_url": "https://www.consilium.europa.eu/en/policies/fight-against-terrorism/terrorist-list/",
+          "confidence": "documented"
+        },
+        {
           "name": "Gaza Government Media Office",
-          "aliases": ["Government Media Office", "GMO Gaza"],
+          "aliases": ["Government Media Office", "Government Media Office in Gaza", "GMO Gaza"],
           "relation": "controlled_media",
           "evidence": "Operated by the Hamas-run Gaza authorities.",
           "source_url": "https://www.consilium.europa.eu/en/policies/fight-against-terrorism/terrorist-list/",
           "confidence": "documented"
+        },
+        {
+          "name": "Gaza Civil Defence",
+          "aliases": ["Palestinian Civil Defense in Gaza", "civil defence agency in Gaza", "Gaza Civil Defense"],
+          "relation": "controlled_agency",
+          "evidence": "Operates under the Hamas-run Ministry of Interior in Gaza.",
+          "source_url": "https://www.consilium.europa.eu/en/policies/fight-against-terrorism/terrorist-list/",
+          "confidence": "documented"
+        },
+        {
+          "name": "Al-Aqsa TV",
+          "aliases": ["Al-Aqsa Television", "Al-Aqsa Radio"],
+          "relation": "controlled_media",
+          "evidence": "Hamas-owned broadcaster.",
+          "source_url": "https://www.consilium.europa.eu/en/policies/fight-against-terrorism/terrorist-list/",
+          "confidence": "documented"
+        }
+      ]
+    },
+    {
+      "canonical_name": "Palestinian Islamic Jihad",
+      "aliases": [
+        "Palestinian Islamic Jihad",
+        "PIJ",
+        "Islamic Jihad",
+        "al-Quds Brigades",
+        "Saraya al-Quds"
+      ],
+      "designations": [
+        {
+          "authority": "EU",
+          "status": "designated",
+          "scope": "whole_organization",
+          "list_version": "EU 2024 update (verify)",
+          "legal_basis": "Council Common Position 2001/931/CFSP",
+          "source_url": "https://www.consilium.europa.eu/en/policies/fight-against-terrorism/terrorist-list/"
+        }
+      ],
+      "controlled_bodies": [
+        {
+          "name": "Palestine Today TV",
+          "aliases": ["Palestine Today", "Filastin al-Yawm"],
+          "relation": "controlled_media",
+          "evidence": "Broadcaster affiliated with Palestinian Islamic Jihad.",
+          "source_url": "https://www.consilium.europa.eu/en/policies/fight-against-terrorism/terrorist-list/",
+          "confidence": "reported"
+        }
+      ]
+    },
+    {
+      "canonical_name": "Popular Front for the Liberation of Palestine",
+      "aliases": [
+        "Popular Front for the Liberation of Palestine",
+        "PFLP"
+      ],
+      "designations": [
+        {
+          "authority": "EU",
+          "status": "designated",
+          "scope": "whole_organization",
+          "list_version": "EU 2024 update (verify)",
+          "legal_basis": "Council Common Position 2001/931/CFSP",
+          "source_url": "https://www.consilium.europa.eu/en/policies/fight-against-terrorism/terrorist-list/"
+        }
+      ],
+      "controlled_bodies": [
+        {
+          "name": "Al-Hadaf",
+          "aliases": ["Al-Hadaf magazine", "Al Hadaf"],
+          "relation": "controlled_media",
+          "evidence": "Magazine associated with the PFLP.",
+          "source_url": "https://www.consilium.europa.eu/en/policies/fight-against-terrorism/terrorist-list/",
+          "confidence": "reported"
         }
       ]
     },
@@ -53,34 +160,108 @@
           "status": "designated",
           "scope": "military_wing_only",
           "wing": "military",
-          "list_version": "EU 2024 update",
+          "list_version": "EU 2024 update (verify)",
           "legal_basis": "Council Common Position 2001/931/CFSP",
           "source_url": "https://www.consilium.europa.eu/en/policies/fight-against-terrorism/terrorist-list/",
-          "note": "The EU designates only Hezbollah's military wing; its political wing is not EU-designated. Preserve this distinction."
+          "note": "The EU designates only Hezbollah's military wing (since 2013); its political wing is not EU-designated. Preserve this distinction — S5 fires only when the named source signals the military wing."
         }
       ],
-      "controlled_bodies": []
+      "controlled_bodies": [
+        {
+          "name": "Al-Manar TV",
+          "aliases": ["Al-Manar", "Al Manar Television"],
+          "relation": "controlled_media",
+          "evidence": "Hezbollah-owned broadcaster. Note the EU wing distinction; treat conservatively.",
+          "source_url": "https://www.consilium.europa.eu/en/policies/fight-against-terrorism/terrorist-list/",
+          "confidence": "documented"
+        },
+        {
+          "name": "Al-Nour Radio",
+          "aliases": ["Al-Nour", "Al Nour radio"],
+          "relation": "controlled_media",
+          "evidence": "Hezbollah-affiliated radio station. Note the EU wing distinction; treat conservatively.",
+          "source_url": "https://www.consilium.europa.eu/en/policies/fight-against-terrorism/terrorist-list/",
+          "confidence": "reported"
+        }
+      ]
     },
     {
-      "canonical_name": "Palestinian Islamic Jihad",
+      "canonical_name": "Kurdistan Workers' Party",
       "aliases": [
-        "Palestinian Islamic Jihad",
-        "PIJ",
-        "Islamic Jihad",
-        "al-Quds Brigades",
-        "Saraya al-Quds"
+        "Kurdistan Workers' Party",
+        "Kurdistan Workers Party",
+        "PKK",
+        "Partiya Karkeren Kurdistan"
       ],
       "designations": [
         {
           "authority": "EU",
           "status": "designated",
           "scope": "whole_organization",
-          "list_version": "EU 2024 update",
+          "list_version": "EU 2024 update (verify)",
           "legal_basis": "Council Common Position 2001/931/CFSP",
           "source_url": "https://www.consilium.europa.eu/en/policies/fight-against-terrorism/terrorist-list/"
         }
       ],
-      "controlled_bodies": []
+      "controlled_bodies": [
+        {
+          "name": "Firat News Agency",
+          "aliases": ["ANF", "ANF News", "Firat News", "Ajansa Nuceyan a Firate"],
+          "relation": "affiliated_media",
+          "evidence": "News agency widely reported as PKK-affiliated.",
+          "source_url": "https://www.consilium.europa.eu/en/policies/fight-against-terrorism/terrorist-list/",
+          "confidence": "reported"
+        }
+      ]
+    },
+    {
+      "canonical_name": "Islamic State (ISIL / Da'esh)",
+      "aliases": [
+        "Islamic State",
+        "ISIL",
+        "ISIS",
+        "IS",
+        "Daesh",
+        "Da'esh",
+        "Islamic State of Iraq and the Levant",
+        "Islamic State of Iraq and Syria"
+      ],
+      "designations": [
+        {
+          "authority": "UN",
+          "status": "designated",
+          "scope": "whole_organization",
+          "list_version": "UN Consolidated List 2026 (verify)",
+          "legal_basis": "UNSC Resolutions 1267/1989/2253",
+          "source_url": "https://www.un.org/securitycouncil/sanctions/1267"
+        },
+        {
+          "authority": "EU",
+          "status": "designated",
+          "scope": "whole_organization",
+          "list_version": "EU 2024 update (verify)",
+          "legal_basis": "Council Common Position 2001/931/CFSP",
+          "source_url": "https://www.consilium.europa.eu/en/policies/fight-against-terrorism/terrorist-list/"
+        }
+      ],
+      "controlled_bodies": [
+        {
+          "name": "Amaq News Agency",
+          "aliases": ["Amaq", "A'maq", "Amaq Agency"],
+          "relation": "controlled_media",
+          "evidence": "Official media outlet of the Islamic State.",
+          "source_url": "https://www.un.org/securitycouncil/sanctions/1267",
+          "confidence": "documented"
+        },
+        {
+          "name": "al-Naba",
+          "aliases": ["al-Naba newsletter", "Naba"],
+          "relation": "controlled_media",
+          "evidence": "Weekly newsletter of the Islamic State.",
+          "source_url": "https://www.un.org/securitycouncil/sanctions/1267",
+          "confidence": "documented"
+        }
+      ]
     },
     {
       "canonical_name": "Al-Qaeda",
@@ -90,7 +271,7 @@
           "authority": "UN",
           "status": "designated",
           "scope": "whole_organization",
-          "list_version": "UN Consolidated List 2026",
+          "list_version": "UN Consolidated List 2026 (verify)",
           "legal_basis": "UNSC Resolutions 1267/1989/2253",
           "source_url": "https://www.un.org/securitycouncil/sanctions/1267"
         },
@@ -98,9 +279,98 @@
           "authority": "EU",
           "status": "designated",
           "scope": "whole_organization",
-          "list_version": "EU 2024 update",
+          "list_version": "EU 2024 update (verify)",
           "legal_basis": "Council Common Position 2001/931/CFSP",
           "source_url": "https://www.consilium.europa.eu/en/policies/fight-against-terrorism/terrorist-list/"
+        }
+      ],
+      "controlled_bodies": [
+        {
+          "name": "As-Sahab Media",
+          "aliases": ["As-Sahab", "al-Sahab", "As Sahab"],
+          "relation": "controlled_media",
+          "evidence": "Media production arm of Al-Qaeda.",
+          "source_url": "https://www.un.org/securitycouncil/sanctions/1267",
+          "confidence": "documented"
+        }
+      ]
+    },
+    {
+      "canonical_name": "Al-Qaeda in the Arabian Peninsula",
+      "aliases": ["Al-Qaeda in the Arabian Peninsula", "AQAP", "Ansar al-Sharia in Yemen"],
+      "designations": [
+        {
+          "authority": "UN",
+          "status": "designated",
+          "scope": "whole_organization",
+          "list_version": "UN Consolidated List 2026 (verify)",
+          "legal_basis": "UNSC Resolutions 1267/1989/2253 (Al-Qaida affiliate)",
+          "source_url": "https://www.un.org/securitycouncil/sanctions/1267"
+        }
+      ],
+      "controlled_bodies": []
+    },
+    {
+      "canonical_name": "Al-Qaeda in the Islamic Maghreb",
+      "aliases": ["Al-Qaeda in the Islamic Maghreb", "AQIM"],
+      "designations": [
+        {
+          "authority": "UN",
+          "status": "designated",
+          "scope": "whole_organization",
+          "list_version": "UN Consolidated List 2026 (verify)",
+          "legal_basis": "UNSC Resolutions 1267/1989/2253 (Al-Qaida affiliate)",
+          "source_url": "https://www.un.org/securitycouncil/sanctions/1267"
+        }
+      ],
+      "controlled_bodies": []
+    },
+    {
+      "canonical_name": "Jama'at Nasr al-Islam wal Muslimin",
+      "aliases": ["Jama'at Nasr al-Islam wal Muslimin", "JNIM", "Group for Support of Islam and Muslims"],
+      "designations": [
+        {
+          "authority": "UN",
+          "status": "designated",
+          "scope": "whole_organization",
+          "list_version": "UN Consolidated List 2026 (verify)",
+          "legal_basis": "UNSC Resolutions 1267/1989/2253 (Al-Qaida affiliate)",
+          "source_url": "https://www.un.org/securitycouncil/sanctions/1267"
+        }
+      ],
+      "controlled_bodies": []
+    },
+    {
+      "canonical_name": "Al-Shabaab",
+      "aliases": ["Al-Shabaab", "al-Shabab", "Harakat al-Shabaab al-Mujahideen"],
+      "designations": [
+        {
+          "authority": "UN",
+          "status": "designated",
+          "scope": "whole_organization",
+          "list_version": "UN Consolidated List 2026 (verify)",
+          "legal_basis": "UNSC Resolutions 1267/1989/2253 (Al-Qaida affiliate)",
+          "source_url": "https://www.un.org/securitycouncil/sanctions/1267"
+        }
+      ],
+      "controlled_bodies": []
+    },
+    {
+      "canonical_name": "Boko Haram / ISWAP",
+      "aliases": [
+        "Boko Haram",
+        "ISWAP",
+        "Islamic State West Africa Province",
+        "Jama'atu Ahlis Sunna Lidda'awati wal-Jihad"
+      ],
+      "designations": [
+        {
+          "authority": "UN",
+          "status": "designated",
+          "scope": "whole_organization",
+          "list_version": "UN Consolidated List 2026 (verify)",
+          "legal_basis": "UNSC Resolutions 1267/1989/2253",
+          "source_url": "https://www.un.org/securitycouncil/sanctions/1267"
         }
       ],
       "controlled_bodies": []

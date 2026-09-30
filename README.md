@@ -328,15 +328,23 @@ extraction and nothing else leaves the box. In particular:
 - **Prompt-injection is detected, not trusted.** Text that tries to instruct the
   assessor is flagged and routed to a human; it never changes the score.
 
-- **The lexicon is a seed.** `data/lexicon.json` is a small, English-only starter
-  set that **requires expert review and expansion** before production use. Coded
-  language is highly context-dependent; the patterns are *indicators only* and are
-  deliberately never scored on their own.
-- **Designation lists are seeds and go stale.** `data/designated_orgs.json` is a
-  small sample. Real designation lists must be **refreshed periodically**, and
-  **different authorities designate different entities and scopes** (e.g. the EU
-  designates only Hezbollah's military wing). Controlled-body relationships require
-  documented evidence and are intentionally conservative.
+- **The lexicon is a seed.** `data/lexicon.json` is a starter set (English plus
+  seed entries for German, Polish, Czech and Spanish) that **requires expert review
+  and expansion** before production use. Non-English patterns fire only when the
+  article language matches their `languages` tag. Coded language is highly
+  context-dependent; the patterns are *indicators only* and are deliberately never
+  scored on their own.
+- **Designation lists are seeds and go stale.** `data/designated_orgs.json` seeds
+  the main EU/UN-listed organisations (Hamas, PIJ, PFLP, Hezbollah, PKK, ISIL,
+  Al-Qaeda and its listed affiliates) plus their controlled media/ministries, but
+  its `list_version`/`source_url` values are placeholders and must be **verified and
+  refreshed** against the current official lists before production use.
+  **Different authorities designate different entities and scopes** (e.g. the EU
+  designates only Hezbollah's military wing), and controlled-body relationships
+  require documented evidence and are intentionally conservative. Entities **not**
+  covered by S5 are listed explicitly in the file's `not_covered` block (Houthis /
+  Ansar Allah, the Taliban and state actors such as the IDF), which are handled by
+  the S1–S4 source-interest rules instead.
 - **No external fact-checking.** The system cannot verify claims against external
   reality. Where independent verification would be required but is unavailable, the
   criterion is `UNRESOLVED` rather than assumed true or false.
