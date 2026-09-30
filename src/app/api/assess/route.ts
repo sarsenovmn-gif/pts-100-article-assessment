@@ -5,7 +5,7 @@ import { MIN_BODY_CHARS } from "@/lib/rubric";
 import type { ArticleParts, Designation } from "@/lib/types";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 const DESIGNATIONS: Designation[] = [
   "ARTICLE",

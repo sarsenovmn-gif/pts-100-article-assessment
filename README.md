@@ -301,6 +301,14 @@ vercel --prod
 Add `ANTHROPIC_API_KEY` **or** `OPENROUTER_API_KEY` under
 **Project → Settings → Environment Variables**.
 
+A full two-pass assessment takes roughly two to ten minutes, so the API route
+exports `maxDuration = 300` (`src/app/api/assess/route.ts`). That value needs a
+paid Vercel plan; on Hobby, lower it to `60` and set
+`PTS_JUDGE_MODEL=claude-haiku-4-5` to fit the shorter limit. On a paid plan
+leave `PTS_JUDGE_MODEL` unset so the stronger default judge applies, and check
+the project's Function Max Duration ceiling in **Project → Settings →
+Functions** before raising `maxDuration` further.
+
 ## Limitations (read before relying on the output)
 
 PTS is an **analytical decision-support framework, not a legal determination** and
