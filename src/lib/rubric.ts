@@ -15,6 +15,33 @@ export const MAX_TOKENS = 12000;
 export const TEMPERATURE = 0;
 export const MAX_RETRIES = 4;
 
+// ============================================================
+// Two-pass architecture (prosecutor → judge → scorer).
+// ============================================================
+
+/** Two-pass is the default when a real provider is available. */
+export const TWO_PASS = (process.env.PTS_TWO_PASS ?? "1") !== "0";
+
+const isOpenRouter = () => !!(process.env.OPENROUTER_API_KEY || "").trim();
+
+export const PROSECUTOR_MODEL =
+  process.env.PTS_PROSECUTOR_MODEL ||
+  (isOpenRouter() ? "anthropic/claude-haiku-4.5" : "claude-haiku-4-5");
+
+export const PROSECUTOR_RUNS = Math.max(1, parseInt(process.env.PTS_PROSECUTOR_RUNS || "3", 10) || 3);
+export const PROSECUTOR_TEMPERATURE = Number(process.env.PTS_PROSECUTOR_TEMPERATURE ?? "0.7");
+
+/** Strongest Sonnet-class model by default; falls back to haiku if rejected. */
+export const JUDGE_MODEL =
+  process.env.PTS_JUDGE_MODEL ||
+  (isOpenRouter() ? "anthropic/claude-sonnet-4.5" : "claude-sonnet-4-5");
+export const JUDGE_FALLBACK_MODEL = isOpenRouter() ? "anthropic/claude-haiku-4.5" : "claude-haiku-4-5";
+export const JUDGE_RUNS = Math.max(1, parseInt(process.env.PTS_JUDGE_RUNS || "1", 10) || 1);
+
+// Chunking (Part C2).
+export const CHUNK_CHARS = Math.max(1000, parseInt(process.env.PTS_CHUNK_CHARS || "6000", 10) || 6000);
+export const CHUNK_OVERLAP = 600;
+
 /** Below this many characters the publication is not assessed at all. */
 export const MIN_BODY_CHARS = 300;
 
@@ -353,6 +380,16 @@ ALONE does not neutralise amplification: weigh headline/lead prominence,
 repetition, amount of context, quality of rebuttal, and whether the publication
 distances itself. Legitimate reporting of antisemitic statements remains possible
 without an automatic deduction.
+CODED LANGUAGE COUNTS: dog-whistles, rhetorical questions that assert a trope, and
+tropes assembled across several sentences all count (quote up to three passages
+for one allegation). Endorsement markers make a quotation OWN_VOICE ("rightly",
+"correctly", "as X has shown", "it is no secret that"); "some say / many believe /
+it is widely known that" relays without challenge are UNCRITICAL_AMPLIFICATION;
+"claims", "alleges", "falsely", "the debunked idea that" are REPORTED or COUNTERED.
+BURIED CONTENT COUNTS: the last paragraph, a photo caption, a pull quote, a
+footnote or a headline is as much the publication's voice as the lead.
+ATTRIBUTION LAUNDERING: a claim attributed in the body but asserted as fact in the
+headline, lead or a summary sentence is the publication's own claim (S1).
 
 ============================================================
 DESIGNATION (decide first; the caller may override)
