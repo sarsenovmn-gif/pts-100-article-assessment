@@ -1,0 +1,182 @@
+{
+  "version": "lexicon-2026-09-30-seed-1",
+  "note": "SEED lexicon for the PTS pre-scan. Patterns are indicators only, never automatic findings; the model must adjudicate every hit in context. Requires expert review before production use. Patterns are matched case-insensitively and Unicode-aware.",
+  "entries": [
+    {
+      "id": "zog",
+      "pattern": "\\bZOG\\b|zionist occupied government|zionist occupation government",
+      "languages": ["en"],
+      "strength": "hard",
+      "ihra_examples": [2],
+      "criterion": "AS2",
+      "context_rule": "Antisemitic conspiracy acronym asserting secret Jewish control of government.",
+      "source": "ADH/ADL hate symbols database",
+      "version": "lexicon-2026-09-30-seed-1"
+    },
+    {
+      "id": "zio_prefix_control",
+      "pattern": "zionist(?:-| )controlled|zionist media|zionist banks?|zio-media|zio-press",
+      "languages": ["en"],
+      "strength": "soft",
+      "ihra_examples": [2],
+      "criterion": "AS2",
+      "context_rule": "'Zionist' used as a euphemism for 'Jewish' in a media/finance control conspiracy. Legitimate political use of 'Zionist' is not_indicator.",
+      "source": "IHRA example 2; EJN guidance",
+      "version": "lexicon-2026-09-30-seed-1"
+    },
+    {
+      "id": "owns_controls_media",
+      "pattern": "(?:jews?|zionists?|the lobby|they)\\s+(?:own|control|run)\\s+(?:the\\s+)?(?:media|banks?|hollywood|press|government|congress|washington|world)",
+      "languages": ["en"],
+      "strength": "soft",
+      "ihra_examples": [2],
+      "criterion": "AS2",
+      "context_rule": "Collective-control conspiracy trope. Requires that the subject is Jews/Zionists as a collective.",
+      "source": "IHRA example 2",
+      "version": "lexicon-2026-09-30-seed-1"
+    },
+    {
+      "id": "rothschild_conspiracy",
+      "pattern": "rothschilds?",
+      "languages": ["en"],
+      "strength": "soft",
+      "ihra_examples": [2],
+      "criterion": "AS2",
+      "context_rule": "Only an indicator when framed as secret/global control or a banking conspiracy. Ordinary historical or business references are not_indicator.",
+      "source": "ADL; IHRA example 2",
+      "version": "lexicon-2026-09-30-seed-1"
+    },
+    {
+      "id": "soros_globalist",
+      "pattern": "soros|globalists?|rootless cosmopolitans?|international bankers?|jewish money|khazars?|khazarian mafia",
+      "languages": ["en"],
+      "strength": "soft",
+      "ihra_examples": [2],
+      "criterion": "AS2",
+      "context_rule": "Coded conspiracy vocabulary. Only relevant when surrounding text asserts hidden collective Jewish power. Isolated mention of Soros/globalist is not_indicator.",
+      "source": "ADL coded language guidance",
+      "version": "lexicon-2026-09-30-seed-1"
+    },
+    {
+      "id": "synagogue_of_satan",
+      "pattern": "synagogue of satan|fake jews|so-called jews|talmud teaches them",
+      "languages": ["en"],
+      "strength": "hard",
+      "ihra_examples": [2],
+      "criterion": "AS2",
+      "context_rule": "Classic demonising/dehumanising religious antisemitism.",
+      "source": "ADL",
+      "version": "lexicon-2026-09-30-seed-1"
+    },
+    {
+      "id": "numeric_neonazi_codes",
+      "pattern": "\\b1488\\b|\\b14 words\\b|\\b6MWE\\b|goyim know|triple parentheses",
+      "languages": ["en"],
+      "strength": "hard",
+      "ihra_examples": [2],
+      "criterion": "AS2",
+      "context_rule": "Neo-Nazi numeric/meme codes.",
+      "source": "ADL hate symbols",
+      "version": "lexicon-2026-09-30-seed-1"
+    },
+    {
+      "id": "chosen_supremacy",
+      "pattern": "chosen (?:people|race)|the chosen|god'?s chosen|jewish supremac|supremacist religion|think they are superior",
+      "languages": ["en"],
+      "strength": "soft",
+      "ihra_examples": [2],
+      "criterion": "AS2",
+      "context_rule": "'Chosen people' is NOT antisemitic in religious, theological, historical or Jewish self-descriptive use. Only relevant where it is converted into a hostile claim that Jews collectively believe themselves inherently superior and entitled to dominate others.",
+      "source": "EJN; IHRA example 2",
+      "version": "lexicon-2026-09-30-seed-1"
+    },
+    {
+      "id": "blood_libel",
+      "pattern": "blood libel|ritual murder|poison(?:ing)? (?:the )?wells?|organ harvest|christ-?killers?|killed (?:jesus|christ)",
+      "languages": ["en"],
+      "strength": "hard",
+      "ihra_examples": [2, 9],
+      "criterion": "AS2",
+      "context_rule": "Classic blood-libel / dehumanisation tropes. Neutral discussion of the term 'blood libel' as a concept is not_indicator.",
+      "source": "IHRA example 9",
+      "version": "lexicon-2026-09-30-seed-1"
+    },
+    {
+      "id": "dual_loyalty",
+      "pattern": "dual loyalty|israel-?first|more loyal to israel|answer to tel aviv|jewish agenda|zionist agenda",
+      "languages": ["en"],
+      "strength": "soft",
+      "ihra_examples": [6],
+      "criterion": "AS3",
+      "context_rule": "Collective dual-loyalty accusation. Documented individual affiliations are not_indicator.",
+      "source": "IHRA example 6",
+      "version": "lexicon-2026-09-30-seed-1"
+    },
+    {
+      "id": "holocaust_denial",
+      "pattern": "holohoax|holocaust (?:hoax|myth|industry|card)|6 gorillion|so-called holocaust|alleged gas chambers|holocaust guilt",
+      "languages": ["en"],
+      "strength": "hard",
+      "ihra_examples": [4, 5],
+      "criterion": "AS4",
+      "context_rule": "Holocaust denial/distortion vocabulary. Historiographical discussion or a cited book title is not automatically a finding.",
+      "source": "IHRA examples 4,5",
+      "version": "lexicon-2026-09-30-seed-1"
+    },
+    {
+      "id": "israel_nazi_codes",
+      "pattern": "zionazi|judeo-?nazi|nazi israel|israhell|gazacaust|gaza holocaust",
+      "languages": ["en"],
+      "strength": "soft",
+      "ihra_examples": [10],
+      "criterion": "AS5",
+      "context_rule": "Nazi analogies used as demonising collective imagery (IHRA 10). Subject to human review. Ordinary war-crime allegations are not_indicator.",
+      "source": "IHRA example 10",
+      "version": "lexicon-2026-09-30-seed-1"
+    },
+    {
+      "id": "israel_delegitimisation",
+      "pattern": "zionist entity|the entity|racist endeavou?r|has no right to exist|no right to exist",
+      "languages": ["en"],
+      "strength": "soft",
+      "ihra_examples": [7],
+      "criterion": "AS5",
+      "context_rule": "Delegitimisation of Jewish self-determination (IHRA 7). Criticism of specific Israeli policy or of Zionism as an ideology is not_indicator. Subject to human review.",
+      "source": "IHRA example 7",
+      "version": "lexicon-2026-09-30-seed-1"
+    },
+    {
+      "id": "ni_apartheid",
+      "pattern": "\\bapartheid\\b",
+      "languages": ["en"],
+      "strength": "not_indicator",
+      "ihra_examples": [],
+      "criterion": "AS5",
+      "context_rule": "Ordinary political/legal term. Only relevant if surrounding language independently satisfies an IHRA/3D test.",
+      "source": "PTS neutrality safeguard",
+      "version": "lexicon-2026-09-30-seed-1"
+    },
+    {
+      "id": "ni_genocide_occupation",
+      "pattern": "\\bgenocide\\b|\\boccupation\\b|\\bwar crimes?\\b|settler colonial|ethnic cleansing",
+      "languages": ["en"],
+      "strength": "not_indicator",
+      "ihra_examples": [],
+      "criterion": "AS5",
+      "context_rule": "Ordinary allegations of misconduct/human-rights violations. Never a finding by appearance alone.",
+      "source": "PTS neutrality safeguard",
+      "version": "lexicon-2026-09-30-seed-1"
+    },
+    {
+      "id": "ni_zionism_lobby",
+      "pattern": "\\bzionism\\b|israel lobby|\\bAIPAC\\b",
+      "languages": ["en"],
+      "strength": "not_indicator",
+      "ihra_examples": [],
+      "criterion": "AS5",
+      "context_rule": "Legitimate political vocabulary. Becomes relevant only with an independent conspiracy/control mechanism.",
+      "source": "PTS neutrality safeguard",
+      "version": "lexicon-2026-09-30-seed-1"
+    }
+  ]
+}

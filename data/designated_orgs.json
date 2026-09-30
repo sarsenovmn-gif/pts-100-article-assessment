@@ -1,0 +1,109 @@
+{
+  "version": "designations-2026-09-30-seed-1",
+  "note": "SEED designation dataset for deterministic source resolution. The model must NEVER decide designation status; only this configured data activates Block S rule S5. Lists require periodic refresh; different authorities designate different entities and scopes (e.g. wing-specific). controlled_body relationships require documented evidence and are conservative by design.",
+  "authorities": {
+    "EU": "European Union terrorist list (Council Common Position 2001/931/CFSP)",
+    "UN": "United Nations Security Council Consolidated List (1267/1989/2253 & 1988)"
+  },
+  "organizations": [
+    {
+      "canonical_name": "Hamas",
+      "aliases": [
+        "Hamas",
+        "Harakat al-Muqawama al-Islamiyya",
+        "Islamic Resistance Movement",
+        "Izz ad-Din al-Qassam Brigades",
+        "Qassam Brigades",
+        "al-Qassam Brigades"
+      ],
+      "designations": [
+        {
+          "authority": "EU",
+          "status": "designated",
+          "scope": "whole_organization",
+          "list_version": "EU 2024 update (Council Regulation)",
+          "legal_basis": "Council Common Position 2001/931/CFSP",
+          "source_url": "https://www.consilium.europa.eu/en/policies/fight-against-terrorism/terrorist-list/"
+        }
+      ],
+      "controlled_bodies": [
+        {
+          "name": "Gaza Government Media Office",
+          "aliases": ["Government Media Office", "GMO Gaza"],
+          "relation": "controlled_media",
+          "evidence": "Operated by the Hamas-run Gaza authorities.",
+          "source_url": "https://www.consilium.europa.eu/en/policies/fight-against-terrorism/terrorist-list/",
+          "confidence": "documented"
+        }
+      ]
+    },
+    {
+      "canonical_name": "Hezbollah",
+      "aliases": [
+        "Hezbollah",
+        "Hizballah",
+        "Hizbullah",
+        "Party of God",
+        "Hezbollah Military Wing",
+        "External Security Organisation"
+      ],
+      "designations": [
+        {
+          "authority": "EU",
+          "status": "designated",
+          "scope": "military_wing_only",
+          "wing": "military",
+          "list_version": "EU 2024 update",
+          "legal_basis": "Council Common Position 2001/931/CFSP",
+          "source_url": "https://www.consilium.europa.eu/en/policies/fight-against-terrorism/terrorist-list/",
+          "note": "The EU designates only Hezbollah's military wing; its political wing is not EU-designated. Preserve this distinction."
+        }
+      ],
+      "controlled_bodies": []
+    },
+    {
+      "canonical_name": "Palestinian Islamic Jihad",
+      "aliases": [
+        "Palestinian Islamic Jihad",
+        "PIJ",
+        "Islamic Jihad",
+        "al-Quds Brigades",
+        "Saraya al-Quds"
+      ],
+      "designations": [
+        {
+          "authority": "EU",
+          "status": "designated",
+          "scope": "whole_organization",
+          "list_version": "EU 2024 update",
+          "legal_basis": "Council Common Position 2001/931/CFSP",
+          "source_url": "https://www.consilium.europa.eu/en/policies/fight-against-terrorism/terrorist-list/"
+        }
+      ],
+      "controlled_bodies": []
+    },
+    {
+      "canonical_name": "Al-Qaeda",
+      "aliases": ["Al-Qaeda", "al-Qaida", "Qaeda", "AQ"],
+      "designations": [
+        {
+          "authority": "UN",
+          "status": "designated",
+          "scope": "whole_organization",
+          "list_version": "UN Consolidated List 2026",
+          "legal_basis": "UNSC Resolutions 1267/1989/2253",
+          "source_url": "https://www.un.org/securitycouncil/sanctions/1267"
+        },
+        {
+          "authority": "EU",
+          "status": "designated",
+          "scope": "whole_organization",
+          "list_version": "EU 2024 update",
+          "legal_basis": "Council Common Position 2001/931/CFSP",
+          "source_url": "https://www.consilium.europa.eu/en/policies/fight-against-terrorism/terrorist-list/"
+        }
+      ],
+      "controlled_bodies": []
+    }
+  ]
+}
